@@ -1,0 +1,19 @@
+{
+  "name": "wordle-tui",
+  "version": "1.2.0",
+  "private": false,
+  "type": "commonjs",
+  "bin": {
+    "wordle-tui": "dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  }
+}
