@@ -92,3 +92,11 @@ test('daily answer is stable for a date', () => {
 
   assert.deepEqual(dailyAnswer(bank.answers, date), dailyAnswer(bank.answers, date));
 });
+
+test('game can switch language and restart with a new answer', () => {
+  const game = createGame({ answer: 'termo', dictionary: { termo: 'termo' }, language: 'pt' });
+  game.switchLanguage({ answer: 'hello', dictionary: { hello: 'hello' }, language: 'en' });
+  assert.equal(game.state.language, 'en');
+  assert.equal(game.state.answerKey, 'hello');
+  assert.equal(game.state.status, 'playing');
+});

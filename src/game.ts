@@ -130,6 +130,7 @@ export interface Game {
   backspace(): void;
   submitGuess(): boolean;
   reset(nextAnswer: string | WordEntry): void;
+  switchLanguage(config: GameConfig): void;
 }
 
 export function createGame(config: GameConfig): Game {
@@ -142,8 +143,8 @@ export function createGame(config: GameConfig): Game {
 
 function buildGame(config: GameConfig) {
   const { answer, dictionary, language } = config;
-  const strings = messages[language];
-  const words = createWordLookup(dictionary);
+  let strings = messages[language];
+  let words = createWordLookup(dictionary);
   const answerEntry = toAnswerEntry(answer);
   if (!words.has(answerEntry.key)) {
     throw new Error(`answer ${answerEntry.key} is not in dictionary`);
@@ -228,6 +229,28 @@ function buildGame(config: GameConfig) {
       state.status = 'playing';
       state.message = strings.gameReset;
       state.keyState.clear();
+    },
+    switchLanguage(config: GameConfig) {
+      const { answer, dictionary, language } = config;
+      if (!(language === 'en' || language === 'pt')) {
+        throw new Error(`Unsupported language: ${language}`);
+      }
+      const nextWords = createWordLookup(dictionary);
+      const nextAnswer = toAnswerEntry(answer);
+      if (!nextWords.has(nextAnswer.key)) {
+        throw new Error(`answer ${nextAnswer.key} is not in dictionary`);
+      }
+      words = nextWords;
+      strings = messages[language];
+      state.answer = nextAnswer.text;
+      state.answerKey = nextAnswer.key;
+      state.guesses = [];
+      state.evaluations = [];
+      state.currentGuess = '';
+      state.status = 'playing';
+      state.message = strings.gameReset;
+      state.keyState.clear();
+      state.language = language;
     },
   };
 }
