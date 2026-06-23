@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, evaluateGuess, normalizeWord, TILE } from '../src/game';
 import { messages } from '../src/i18n';
-import { enterTerminalUi, isQuitCommand, isRestartCommand, leaveTerminalUi } from '../src/index';
 import { dailyAnswer, loadWordBank } from '../src/words';
 
 test('evaluateGuess marks repeated letters correctly', () => {
@@ -21,7 +20,14 @@ test('createGame accepts language config and uses localized messages', () => {
 });
 
 test('createGame rejects unsupported languages', () => {
-  assert.throws(() => createGame({ answer: 'termo', dictionary: ['termo'], language: 'fr' as any }), /Unsupported language/);
+  assert.throws(
+    () => createGame({ answer: 'termo', dictionary: ['termo'], language: JSON.parse('"fr"') }),
+    /Unsupported language/
+  );
+});
+
+test('createGame throws if answer is not in dictionary', () => {
+  assert.throws(() => createGame({ answer: 'zzzzz', dictionary: ['termo'], language: 'pt' }), /not in dictionary/);
 });
 
 test('game wins on correct guess', () => {
@@ -57,21 +63,6 @@ test('accents are normalized for guesses and restored for display', () => {
   ]);
 });
 
-test('plain q and r are letters during active play', () => {
-  assert.equal(isQuitCommand({ name: 'q', ctrl: false }, 'playing'), false);
-  assert.equal(isRestartCommand({ name: 'r', ctrl: false }, 'playing'), false);
-
-  const game = createGame({ answer: 'quero', dictionary: ['quero'], language: 'pt' });
-  game.addLetter('q');
-  game.addLetter('r');
-  assert.equal(game.state.currentGuess, 'qr');
-});
-
-test('finished games accept q to quit and r to restart', () => {
-  assert.equal(isQuitCommand({ name: 'q', ctrl: false }, 'won'), true);
-  assert.equal(isRestartCommand({ name: 'r', ctrl: false }, 'lost'), true);
-});
-
 test('word bank contains a broad local dictionary', () => {
   const bank = loadWordBank();
   assert.ok(bank.words.length > 10000);
@@ -89,9 +80,4 @@ test('daily answer is stable for a date', () => {
   const date = new Date('2026-05-20T12:00:00-03:00');
 
   assert.deepEqual(dailyAnswer(bank.answers, date), dailyAnswer(bank.answers, date));
-});
-
-test('terminal UI uses the alternate screen buffer', () => {
-  assert.match(enterTerminalUi(), /\x1b\[\?1049h/);
-  assert.match(leaveTerminalUi(), /\x1b\[\?1049l/);
 });

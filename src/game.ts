@@ -145,6 +145,9 @@ function buildGame(config: GameConfig) {
   const strings = messages[language];
   const words = createWordLookup(dictionary);
   const answerEntry = toAnswerEntry(answer);
+  if (!words.has(answerEntry.key)) {
+    throw new Error(`answer ${answerEntry.key} is not in dictionary`);
+  }
   const state: GameState = {
     answer: answerEntry.text,
     answerKey: answerEntry.key,

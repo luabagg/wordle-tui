@@ -3,6 +3,7 @@ import readline, { Key } from 'node:readline';
 import { createGame, TILE, WORD_LENGTH, MAX_GUESSES, TileState, GameStatus } from './game';
 import { messages } from './i18n';
 import { dailyAnswer, loadWordBank } from './words';
+import { defaultLanguage } from './dictionary';
 
 const colors = {
   reset: '\x1b[0m',
@@ -127,12 +128,13 @@ export async function run() {
     process.exit(1);
   }
 
+  const initialLanguage = defaultLanguage();
   const bank = loadWordBank();
   const todayAnswer = dailyAnswer(bank.answers);
   const game = createGame({
     answer: todayAnswer,
     dictionary: bank.dictionary,
-    language: 'pt',
+    language: initialLanguage,
   });
 
   readline.emitKeypressEvents(process.stdin);
@@ -145,38 +147,53 @@ export async function run() {
     process.stdout.write(leaveTerminalUi());
   }
 
-  process.stdin.on('keypress', (str: string, key: Key) => {
-    if (isQuitCommand(key, game.state.status)) {
-      exit();
-      process.exit(0);
-    }
+  function cleanupAndExit() {
+    exit();
+    process.exit(0);
+  }
 
-    if (isRestartCommand(key, game.state.status)) {
-      game.reset(todayAnswer);
-      draw(game);
-      return;
-    }
-
-    if (key.name === 'return') {
-      game.submitGuess();
-      draw(game);
-      return;
-    }
-
-    if (key.name === 'backspace' || key.name === 'delete') {
-      game.backspace();
-      draw(game);
-      return;
-    }
-
-    if (str && !key.ctrl) {
-      game.addLetter(str);
-      draw(game);
-    }
+  process.on('SIGINT', cleanupAndExit);
+  process.on('SIGTERM', cleanupAndExit);
+  process.on('uncaughtException', (err) => {
+    process.stderr.write(`${String(err)}\n`);
+    cleanupAndExit();
   });
 
-  process.stdout.on('resize', () => draw(game));
-  draw(game);
+  try {
+    process.stdin.on('keypress', (str: string, key: Key) => {
+      if (isQuitCommand(key, game.state.status)) {
+        cleanupAndExit();
+      }
+
+      if (isRestartCommand(key, game.state.status)) {
+        game.reset(todayAnswer);
+        draw(game);
+        return;
+      }
+
+      if (key.name === 'return') {
+        game.submitGuess();
+        draw(game);
+        return;
+      }
+
+      if (key.name === 'backspace' || key.name === 'delete') {
+        game.backspace();
+        draw(game);
+        return;
+      }
+
+      if (str && !key.ctrl) {
+        game.addLetter(str);
+        draw(game);
+      }
+    });
+
+    process.stdout.on('resize', () => draw(game));
+    draw(game);
+  } finally {
+    exit();
+  }
 }
 
 if (require.main === module) {
