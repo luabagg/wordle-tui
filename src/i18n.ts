@@ -1,0 +1,50 @@
+export type Language = 'en' | 'pt';
+
+export interface GameStrings {
+  title: string;
+  subtitle: string;
+  controlsPlaying: string;
+  controlsFinished: string;
+  accentHint: string;
+  guessesUsed: (used: number, remaining: number) => string;
+  notInDictionary: string;
+  wrongLength: string;
+  winMessage: (guesses: number) => string;
+  loseMessage: (answer: string) => string;
+  guessRegistered: (guess: number) => string;
+  dailyLoaded: (count: number) => string;
+  gameReset: string;
+}
+
+export const messages: Record<Language, GameStrings> = {
+  en: {
+    title: 'WORDLE TUI',
+    subtitle: 'Guess the 5-letter word in 6 tries.',
+    controlsPlaying: 'Type letters. Enter submits. Backspace deletes. Esc quits. Ctrl+R restarts. L changes language. Tab shows tips.',
+    controlsFinished: 'Round over. R restarts, Q quits, L changes language.',
+    accentHint: '',
+    guessesUsed: (used, remaining) => `${used} guess${used === 1 ? '' : 'es'} used • ${remaining} remaining`,
+    notInDictionary: 'Not in dictionary.',
+    wrongLength: 'Words must be 5 letters.',
+    winMessage: (guesses) => `Solved in ${guesses}/6! R restarts, Q quits.`,
+    loseMessage: (answer) => `The word was ${answer.toUpperCase()}. R restarts, Q quits.`,
+    guessRegistered: (guess) => `Guess ${guess}/6 registered.`,
+    dailyLoaded: (count) => `Daily word loaded. ${count.toLocaleString('en-US')} valid guesses.`,
+    gameReset: 'Game restarted. Guess the daily word.',
+  },
+  pt: {
+    title: 'TERMO TUI',
+    subtitle: 'Descubra a palavra certa em 6 tentativas.',
+    controlsPlaying: 'Digite letras. Enter envia. Backspace apaga. Esc sai. Ctrl+R reinicia. L muda idioma. Tab mostra dicas.',
+    controlsFinished: 'Fim da rodada. R reinicia a palavra de hoje, Q sai, L muda idioma.',
+    accentHint: 'Acentos aparecem automaticamente e não contam nas dicas.',
+    guessesUsed: (used, remaining) => `${used} tentativa${used === 1 ? '' : 's'} usadas • ${remaining} tentativa${remaining === 1 ? '' : 's'} restantes`,
+    notInDictionary: 'Não conheço essa palavra.',
+    wrongLength: 'Só valem palavras com 5 letras.',
+    winMessage: (guesses) => `Você descobriu em ${guesses}/6! R reinicia, Q sai.`,
+    loseMessage: (answer) => `A palavra era ${answer.toUpperCase()}. R reinicia, Q sai.`,
+    guessRegistered: (guess) => `Tentativa ${guess}/6 registrada.`,
+    dailyLoaded: (count) => `Palavra diária carregada. ${count.toLocaleString('pt-BR')} palavras aceitas.`,
+    gameReset: 'Jogo reiniciado. Descubra a palavra de hoje.',
+  },
+};
