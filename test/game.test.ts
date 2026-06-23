@@ -33,7 +33,7 @@ test('invalid word is rejected', () => {
   for (const ch of 'xxxxx') game.addLetter(ch);
   const submitted = game.submitGuess();
   assert.equal(submitted, false);
-  assert.equal(game.state.message, 'Não conheço essa palavra.');
+  assert.equal(game.state.message, messages.pt.notInDictionary);
 });
 
 test('accents are normalized for guesses and restored for display', () => {

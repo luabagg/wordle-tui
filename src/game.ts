@@ -124,25 +124,7 @@ function toAnswerEntry(answer: string | WordEntry): WordEntry {
   };
 }
 
-function isGameConfig(value: unknown): value is GameConfig {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'answer' in value &&
-    'dictionary' in value &&
-    'language' in value
-  );
-}
-
-export function createGame(config: GameConfig): ReturnType<typeof buildGame>;
-export function createGame(answer: string | WordEntry, dictionary: WordDictionary): ReturnType<typeof buildGame>;
-export function createGame(
-  configOrAnswer: GameConfig | string | WordEntry,
-  maybeDictionary?: WordDictionary,
-) {
-  const config = isGameConfig(configOrAnswer)
-    ? configOrAnswer
-    : { answer: configOrAnswer, dictionary: maybeDictionary!, language: 'pt' as Language };
+export function createGame(config: GameConfig): ReturnType<typeof buildGame> {
   return buildGame(config);
 }
 
