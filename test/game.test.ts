@@ -20,6 +20,10 @@ test('createGame accepts language config and uses localized messages', () => {
   assert.equal(game.state.message, messages.pt.dailyLoaded(2));
 });
 
+test('createGame rejects unsupported languages', () => {
+  assert.throws(() => createGame({ answer: 'termo', dictionary: ['termo'], language: 'fr' as any }), /Unsupported language/);
+});
+
 test('game wins on correct guess', () => {
   const game = createGame({ answer: 'termo', dictionary: ['termo', 'sábio'], language: 'pt' });
   for (const ch of 'termo') game.addLetter(ch);

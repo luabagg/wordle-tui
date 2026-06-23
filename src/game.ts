@@ -1,4 +1,4 @@
-import { GameStrings, Language, messages } from './i18n';
+import { Language, messages } from './i18n';
 
 export const WORD_LENGTH = 5;
 export const MAX_GUESSES = 6;
@@ -102,7 +102,7 @@ function createWordLookup(words: WordDictionary): WordLookup {
     }
   } else {
     for (const [key, value] of Object.entries(words)) {
-      dictionary.set(normalizeWord(key), value === true ? key : value);
+      dictionary.set(normalizeWord(key), value === true ? key.toLowerCase() : String(value).toLowerCase());
     }
   }
 
@@ -124,7 +124,19 @@ function toAnswerEntry(answer: string | WordEntry): WordEntry {
   };
 }
 
-export function createGame(config: GameConfig): ReturnType<typeof buildGame> {
+export interface Game {
+  state: GameState;
+  addLetter(ch: string): void;
+  backspace(): void;
+  submitGuess(): boolean;
+  reset(nextAnswer: string | WordEntry): void;
+}
+
+export function createGame(config: GameConfig): Game {
+  const { language } = config;
+  if (!(language === 'en' || language === 'pt')) {
+    throw new Error(`Unsupported language: ${language}`);
+  }
   return buildGame(config);
 }
 

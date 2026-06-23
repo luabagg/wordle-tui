@@ -40,10 +40,6 @@ function center(line: string, width: number): string {
   return `${' '.repeat(pad)}${line}`;
 }
 
-function countLabel(count: number, noun: string): string {
-  return `${count.toLocaleString('pt-BR')} ${noun}${count === 1 ? '' : 's'}`;
-}
-
 function statusColor(status: string): string {
   if (status === 'won') return colors.fgGreen;
   if (status === 'lost') return colors.fgRed;
@@ -79,17 +75,16 @@ function tile(letter: string | undefined, state: TileState): string {
 
 function draw(game: ReturnType<typeof createGame>): void {
   const width = process.stdout.columns || 80;
+  const strings = messages[game.state.language];
   const guessesLeft = MAX_GUESSES - game.state.guesses.length;
-  const controls = game.state.status === 'playing'
-    ? 'Digite letras. Enter envia. Backspace apaga. Esc sai. Ctrl+R reinicia.'
-    : 'Fim da rodada. R reinicia a palavra de hoje, Q sai.';
+  const controls = game.state.status === 'playing' ? strings.controlsPlaying : strings.controlsFinished;
   const lines: string[] = [];
   lines.push('');
-  lines.push(center(`${colors.bold}TERMO TUI${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}Descubra a palavra certa em 6 tentativas.${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}${countLabel(game.state.guesses.length, 'tentativa')} usadas • ${countLabel(guessesLeft, 'tentativa')} restantes${colors.reset}`, width));
+  lines.push(center(`${colors.bold}${strings.title}${colors.reset}`, width));
+  lines.push(center(`${colors.fgGray}${strings.subtitle}${colors.reset}`, width));
+  lines.push(center(`${colors.fgGray}${strings.guessesUsed(game.state.guesses.length, guessesLeft)}${colors.reset}`, width));
   lines.push(center(`${colors.fgGray}${controls}${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}Acentos aparecem automaticamente e não contam nas dicas.${colors.reset}`, width));
+  if (strings.accentHint) lines.push(center(`${colors.fgGray}${strings.accentHint}${colors.reset}`, width));
   lines.push('');
 
   for (let r = 0; r < MAX_GUESSES; r += 1) {
@@ -139,7 +134,6 @@ export async function run() {
     dictionary: bank.dictionary,
     language: 'pt',
   });
-  game.state.message = messages['pt'].dailyLoaded(bank.words.length);
 
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
