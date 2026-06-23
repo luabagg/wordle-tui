@@ -1,19 +1,18 @@
 # Third-Party Notices
 
 This project bundles generated five-letter word data in `src/dict/en/`
-(English) and Brazilian Portuguese data used for the daily answer and guess
-lists.
+(English) and `src/dict/pt-br/` (Brazilian Portuguese) used for the daily
+answer and guess lists.
 
 ## English word lists
 
 - **Wordle allowed guesses**: `https://raw.githubusercontent.com/tabatkins/wordle-list/main/words`
   - License: MIT (https://github.com/tabatkins/wordle-list)
-- **Common English word filter**: `word-list` npm package
-  - License: MIT (https://github.com/sindresorhus/word-list)
+- **Word frequency data**: `https://norvig.com/ngrams/count_1w.txt`
+  - Derived from the Google Books Ngram data, which Google makes freely available for any purpose.
+  - Source: Peter Norvig's compilation at https://norvig.com/ngrams/
 
-The English answer list is derived by taking the 5-letter words from the
-Wordle allowed-guesses list that also appear in the `word-list` common English
-words.
+The English answer list is derived by taking the top 2,500 most frequent 5-letter words from the frequency data that also appear in the Wordle allowed-guesses list.
 
 ## fserb/pt-br
 

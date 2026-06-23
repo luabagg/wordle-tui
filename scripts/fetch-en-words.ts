@@ -3,6 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 
 const WORD_LENGTH = 5;
+const TARGET_ANSWER_COUNT = 2500;
 
 function normalize(word: string): string {
   return word
@@ -34,7 +35,7 @@ async function main() {
   await fs.mkdir(outDir, { recursive: true });
 
   const guessText = await fetchText('https://raw.githubusercontent.com/tabatkins/wordle-list/main/words');
-  const commonText = await fs.readFile(path.join(root, 'node_modules/word-list/words.txt'), 'utf8');
+  const freqText = await fetchText('https://norvig.com/ngrams/count_1w.txt');
 
   const guesses = new Set(
     guessText
@@ -43,20 +44,22 @@ async function main() {
       .filter((w) => w.length === WORD_LENGTH)
   );
 
-  const commonWords = new Set(
-    commonText
-      .split(/\r?\n/)
-      .map(normalize)
-      .filter((w) => w.length === WORD_LENGTH)
-  );
+  const answers: string[] = [];
+  for (const line of freqText.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [word] = line.split('\t');
+    const key = normalize(word);
+    if (key.length === WORD_LENGTH && guesses.has(key) && !answers.includes(key)) {
+      answers.push(key);
+      if (answers.length >= TARGET_ANSWER_COUNT) break;
+    }
+  }
 
   if (guesses.size === 0) throw new Error('No English guesses fetched.');
-  if (commonWords.size === 0) throw new Error('No common English words loaded.');
+  if (answers.length === 0) throw new Error('No English answers generated.');
 
   const allSorted = Array.from(guesses).sort();
-  const answers = allSorted.filter((w) => commonWords.has(w));
-
-  if (answers.length === 0) throw new Error('No English answers generated.');
+  const answersSorted = answers.sort();
 
   await fs.writeFile(
     path.join(outDir, 'all.json'),
@@ -64,10 +67,10 @@ async function main() {
   );
   await fs.writeFile(
     path.join(outDir, 'answers.json'),
-    JSON.stringify(answers.map((key) => ({ key, text: key })), null, 2) + '\n'
+    JSON.stringify(answersSorted.map((key) => ({ key, text: key })), null, 2) + '\n'
   );
 
-  console.log(`English: ${allSorted.length} guesses, ${answers.length} answers`);
+  console.log(`English: ${allSorted.length} guesses, ${answersSorted.length} answers`);
 }
 
 main().catch((err) => {
