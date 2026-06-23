@@ -133,11 +133,14 @@ export interface Game {
   switchLanguage(config: GameConfig): void;
 }
 
-export function createGame(config: GameConfig): Game {
-  const { language } = config;
-  if (!(language === 'en' || language === 'pt')) {
-    throw new Error(`Unsupported language: ${language}`);
+function assertLanguage(lang: string): asserts lang is Language {
+  if (!(lang === 'en' || lang === 'pt')) {
+    throw new Error(`Unsupported language: ${lang}`);
   }
+}
+
+export function createGame(config: GameConfig): Game {
+  assertLanguage(config.language);
   return buildGame(config);
 }
 
@@ -232,9 +235,7 @@ function buildGame(config: GameConfig) {
     },
     switchLanguage(config: GameConfig) {
       const { answer, dictionary, language } = config;
-      if (!(language === 'en' || language === 'pt')) {
-        throw new Error(`Unsupported language: ${language}`);
-      }
+      assertLanguage(language);
       const nextWords = createWordLookup(dictionary);
       const nextAnswer = toAnswerEntry(answer);
       if (!nextWords.has(nextAnswer.key)) {

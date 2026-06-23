@@ -94,9 +94,36 @@ test('daily answer is stable for a date', () => {
 });
 
 test('game can switch language and restart with a new answer', () => {
-  const game = createGame({ answer: 'termo', dictionary: { termo: 'termo' }, language: 'pt' });
-  game.switchLanguage({ answer: 'hello', dictionary: { hello: 'hello' }, language: 'en' });
+  const game = createGame({ answer: 'termo', dictionary: { termo: 'termo', sabio: 'sábio' }, language: 'pt' });
+  game.switchLanguage({ answer: 'hello', dictionary: { hello: 'hello', world: 'world' }, language: 'en' });
   assert.equal(game.state.language, 'en');
   assert.equal(game.state.answerKey, 'hello');
   assert.equal(game.state.status, 'playing');
+  assert.equal(game.state.message, messages.en.gameReset);
+
+  for (const ch of 'hello') game.addLetter(ch);
+  assert.equal(game.submitGuess(), true);
+  assert.equal(game.state.status, 'won');
+
+  const game2 = createGame({ answer: 'termo', dictionary: { termo: 'termo' }, language: 'pt' });
+  game2.switchLanguage({ answer: 'hello', dictionary: { hello: 'hello' }, language: 'en' });
+  for (const ch of 'termo') game2.addLetter(ch);
+  assert.equal(game2.submitGuess(), false);
+  assert.equal(game2.state.message, messages.en.notInDictionary);
+});
+
+test('switchLanguage rejects unsupported languages', () => {
+  const game = createGame({ answer: 'termo', dictionary: { termo: 'termo' }, language: 'pt' });
+  assert.throws(
+    () => game.switchLanguage({ answer: 'hello', dictionary: { hello: 'hello' }, language: JSON.parse('"fr"') }),
+    /Unsupported language/
+  );
+});
+
+test('switchLanguage rejects answer not in new dictionary', () => {
+  const game = createGame({ answer: 'termo', dictionary: { termo: 'termo' }, language: 'pt' });
+  assert.throws(
+    () => game.switchLanguage({ answer: 'hello', dictionary: { world: 'world' }, language: 'en' }),
+    /not in dictionary/
+  );
 });
