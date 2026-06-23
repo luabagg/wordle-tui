@@ -41,7 +41,7 @@ function center(line: string, width: number): string {
   return `${' '.repeat(pad)}${line}`;
 }
 
-function statusColor(status: string): string {
+function statusColor(status: GameStatus): string {
   if (status === 'won') return colors.fgGreen;
   if (status === 'lost') return colors.fgRed;
   return colors.fgYellow;

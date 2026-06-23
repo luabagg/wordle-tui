@@ -217,6 +217,9 @@ function buildGame(config: GameConfig) {
     },
     reset(nextAnswer: string | WordEntry) {
       const nextAnswerEntry = toAnswerEntry(nextAnswer);
+      if (!words.has(nextAnswerEntry.key)) {
+        throw new Error(`answer ${nextAnswerEntry.key} is not in dictionary`);
+      }
       state.answer = nextAnswerEntry.text;
       state.answerKey = nextAnswerEntry.key;
       state.guesses = [];

@@ -30,6 +30,17 @@ test('createGame throws if answer is not in dictionary', () => {
   assert.throws(() => createGame({ answer: 'zzzzz', dictionary: ['termo'], language: 'pt' }), /not in dictionary/);
 });
 
+test('reset throws if new answer is not in dictionary', () => {
+  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
+  assert.throws(() => game.reset('zzzzz'), /not in dictionary/);
+});
+
+test('createGame supports english config', () => {
+  const game = createGame({ answer: 'hello', dictionary: { hello: 'hello' }, language: 'en' });
+  assert.equal(game.state.language, 'en');
+  assert.equal(game.state.message, messages.en.dailyLoaded(1));
+});
+
 test('game wins on correct guess', () => {
   const game = createGame({ answer: 'termo', dictionary: ['termo', 'sábio'], language: 'pt' });
   for (const ch of 'termo') game.addLetter(ch);
