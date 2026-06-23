@@ -147,53 +147,50 @@ export async function run() {
     process.stdout.write(leaveTerminalUi());
   }
 
-  function cleanupAndExit() {
+  function shutdown(exitCode: number) {
     exit();
-    process.exit(0);
+    process.exit(exitCode);
   }
 
-  process.on('SIGINT', cleanupAndExit);
-  process.on('SIGTERM', cleanupAndExit);
+  process.on('SIGINT', () => shutdown(0));
+  process.on('SIGTERM', () => shutdown(0));
   process.on('uncaughtException', (err) => {
     process.stderr.write(`${String(err)}\n`);
-    cleanupAndExit();
+    shutdown(1);
   });
 
-  try {
-    process.stdin.on('keypress', (str: string, key: Key) => {
-      if (isQuitCommand(key, game.state.status)) {
-        cleanupAndExit();
-      }
+  process.stdin.on('keypress', (str: string, key: Key) => {
+    if (isQuitCommand(key, game.state.status)) {
+      shutdown(0);
+      return;
+    }
 
-      if (isRestartCommand(key, game.state.status)) {
-        game.reset(todayAnswer);
-        draw(game);
-        return;
-      }
+    if (isRestartCommand(key, game.state.status)) {
+      game.reset(todayAnswer);
+      draw(game);
+      return;
+    }
 
-      if (key.name === 'return') {
-        game.submitGuess();
-        draw(game);
-        return;
-      }
+    if (key.name === 'return') {
+      game.submitGuess();
+      draw(game);
+      return;
+    }
 
-      if (key.name === 'backspace' || key.name === 'delete') {
-        game.backspace();
-        draw(game);
-        return;
-      }
+    if (key.name === 'backspace' || key.name === 'delete') {
+      game.backspace();
+      draw(game);
+      return;
+    }
 
-      if (str && !key.ctrl) {
-        game.addLetter(str);
-        draw(game);
-      }
-    });
+    if (str && !key.ctrl) {
+      game.addLetter(str);
+      draw(game);
+    }
+  });
 
-    process.stdout.on('resize', () => draw(game));
-    draw(game);
-  } finally {
-    exit();
-  }
+  process.stdout.on('resize', () => draw(game));
+  draw(game);
 }
 
 if (require.main === module) {
