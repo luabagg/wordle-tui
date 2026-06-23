@@ -1,10 +1,8 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 
 const WORD_LENGTH = 5;
-
-const guessUrl = 'https://raw.githubusercontent.com/tabatkins/wordle-list/main/words';
-const answerUrl = 'https://gist.githubusercontent.com/cfreshman/a03ef2cba789d8cf00c08f767e0fad7b/raw/c46f451920d5cf6326d550fb2d6abb1642717852/wordle-answers-alphabetical.txt';
 
 function normalize(word: string): string {
   return word
@@ -14,52 +12,51 @@ function normalize(word: string): string {
     .replace(/[^a-z]/g, '');
 }
 
-async function fetchList(url: string): Promise<string[]> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
+function projectRoot(): string {
+  let dir = __dirname;
+  while (!fsSync.existsSync(path.join(dir, 'package.json'))) {
+    const parent = path.dirname(dir);
+    if (parent === dir) throw new Error('Could not find project root');
+    dir = parent;
   }
-  const text = await res.text();
-  return text
-    .split(/\r?\n/)
-    .map(normalize)
-    .filter((w) => w.length === WORD_LENGTH);
+  return dir;
 }
 
-async function findProjectRoot(start: string): Promise<string> {
-  let dir = start;
-  while (true) {
-    try {
-      await fs.access(path.join(dir, 'package.json'));
-      return dir;
-    } catch {
-      const parent = path.dirname(dir);
-      if (parent === dir) {
-        throw new Error('Could not locate project root (no package.json found)');
-      }
-      dir = parent;
-    }
-  }
+async function fetchText(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  return res.text();
 }
 
 async function main() {
-  const rootDir = await findProjectRoot(__dirname);
-  const outDir = path.resolve(rootDir, 'src/dict/en');
+  const root = projectRoot();
+  const outDir = path.join(root, 'src/dict/en');
   await fs.mkdir(outDir, { recursive: true });
 
-  const guesses = new Set(await fetchList(guessUrl));
-  const answers = (await fetchList(answerUrl)).filter((w) => guesses.has(w));
+  const guessText = await fetchText('https://raw.githubusercontent.com/tabatkins/wordle-list/main/words');
+  const commonText = await fs.readFile(path.join(root, 'node_modules/word-list/words.txt'), 'utf8');
 
-  for (const w of answers) {
-    guesses.add(w);
-  }
+  const guesses = new Set(
+    guessText
+      .split(/\r?\n/)
+      .map(normalize)
+      .filter((w) => w.length === WORD_LENGTH)
+  );
 
-  if (guesses.size === 0) {
-    throw new Error('No English words could be fetched. Aborting.');
-  }
+  const commonWords = new Set(
+    commonText
+      .split(/\r?\n/)
+      .map(normalize)
+      .filter((w) => w.length === WORD_LENGTH)
+  );
+
+  if (guesses.size === 0) throw new Error('No English guesses fetched.');
+  if (commonWords.size === 0) throw new Error('No common English words loaded.');
 
   const allSorted = Array.from(guesses).sort();
-  const answersSorted = Array.from(new Set(answers)).sort();
+  const answers = allSorted.filter((w) => commonWords.has(w));
+
+  if (answers.length === 0) throw new Error('No English answers generated.');
 
   await fs.writeFile(
     path.join(outDir, 'all.json'),
@@ -67,10 +64,10 @@ async function main() {
   );
   await fs.writeFile(
     path.join(outDir, 'answers.json'),
-    JSON.stringify(answersSorted.map((key) => ({ key, text: key })), null, 2) + '\n'
+    JSON.stringify(answers.map((key) => ({ key, text: key })), null, 2) + '\n'
   );
 
-  console.log(`English: ${allSorted.length} guesses, ${answersSorted.length} answers`);
+  console.log(`English: ${allSorted.length} guesses, ${answers.length} answers`);
 }
 
 main().catch((err) => {
