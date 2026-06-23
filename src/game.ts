@@ -1,3 +1,5 @@
+import { GameStrings, Language, messages } from './i18n';
+
 export const WORD_LENGTH = 5;
 export const MAX_GUESSES = 6;
 
@@ -11,27 +13,52 @@ export const TILE = {
 export type TileState = (typeof TILE)[keyof typeof TILE];
 export type GameStatus = 'playing' | 'won' | 'lost';
 
+export interface GameConfig {
+  answer: string | WordEntry;
+  dictionary: WordDictionary;
+  language: Language;
+}
+
 export interface GameState {
   answer: string;
+  answerKey: string;
   guesses: string[];
   evaluations: TileState[][];
   currentGuess: string;
   status: GameStatus;
   message: string;
   keyState: Map<string, TileState>;
+  language: Language;
+}
+
+export interface WordEntry {
+  readonly key: string;
+  readonly text: string;
+}
+
+export type WordDictionary = Readonly<Record<string, true | string>> | ReadonlySet<string> | readonly string[];
+
+export function normalizeWord(word: string): string {
+  return word
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
 export function evaluateGuess(guess: string, answer: string): TileState[] {
-  if (guess.length !== WORD_LENGTH || answer.length !== WORD_LENGTH) {
+  const guessKey = normalizeWord(guess);
+  const answerKey = normalizeWord(answer);
+
+  if (guessKey.length !== WORD_LENGTH || answerKey.length !== WORD_LENGTH) {
     throw new Error('guess and answer must be 5 letters');
   }
 
   const result: TileState[] = new Array(WORD_LENGTH).fill(TILE.ABSENT);
-  const answerChars: Array<string | null> = answer.split('');
+  const answerChars: Array<string | null> = answerKey.split('');
   const remaining = new Map<string, number>();
 
   for (let i = 0; i < WORD_LENGTH; i += 1) {
-    if (guess[i] === answerChars[i]) {
+    if (guessKey[i] === answerChars[i]) {
       result[i] = TILE.CORRECT;
       answerChars[i] = null;
     }
@@ -44,26 +71,96 @@ export function evaluateGuess(guess: string, answer: string): TileState[] {
 
   for (let i = 0; i < WORD_LENGTH; i += 1) {
     if (result[i] === TILE.CORRECT) continue;
-    const count = remaining.get(guess[i]) || 0;
+    const count = remaining.get(guessKey[i]) || 0;
     if (count > 0) {
       result[i] = TILE.PRESENT;
-      remaining.set(guess[i], count - 1);
+      remaining.set(guessKey[i], count - 1);
     }
   }
 
   return result;
 }
 
-export function createGame(answer: string, validWords: string[]) {
-  const dictionary = new Set(validWords.map((w) => w.toLowerCase()));
+interface WordLookup {
+  has: (word: string) => boolean;
+  display: (word: string) => string;
+  size: number;
+}
+
+function createWordLookup(words: WordDictionary): WordLookup {
+  const dictionary = new Map<string, string>();
+
+  if (Array.isArray(words)) {
+    for (const word of words) {
+      const key = normalizeWord(word);
+      if (!dictionary.has(key)) dictionary.set(key, word.toLowerCase());
+    }
+  } else if (words instanceof Set) {
+    for (const word of words) {
+      const key = normalizeWord(word);
+      if (!dictionary.has(key)) dictionary.set(key, word.toLowerCase());
+    }
+  } else {
+    for (const [key, value] of Object.entries(words)) {
+      dictionary.set(normalizeWord(key), value === true ? key : value);
+    }
+  }
+
+  return {
+    has: (word) => dictionary.has(normalizeWord(word)),
+    display: (word) => dictionary.get(normalizeWord(word)) || normalizeWord(word),
+    size: dictionary.size,
+  };
+}
+
+function toAnswerEntry(answer: string | WordEntry): WordEntry {
+  if (typeof answer === 'string') {
+    return { key: normalizeWord(answer), text: answer.toLowerCase() };
+  }
+
+  return {
+    key: normalizeWord(answer.key),
+    text: answer.text.toLowerCase(),
+  };
+}
+
+function isGameConfig(value: unknown): value is GameConfig {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'answer' in value &&
+    'dictionary' in value &&
+    'language' in value
+  );
+}
+
+export function createGame(config: GameConfig): ReturnType<typeof buildGame>;
+export function createGame(answer: string | WordEntry, dictionary: WordDictionary): ReturnType<typeof buildGame>;
+export function createGame(
+  configOrAnswer: GameConfig | string | WordEntry,
+  maybeDictionary?: WordDictionary,
+) {
+  const config = isGameConfig(configOrAnswer)
+    ? configOrAnswer
+    : { answer: configOrAnswer, dictionary: maybeDictionary!, language: 'pt' as Language };
+  return buildGame(config);
+}
+
+function buildGame(config: GameConfig) {
+  const { answer, dictionary, language } = config;
+  const strings = messages[language];
+  const words = createWordLookup(dictionary);
+  const answerEntry = toAnswerEntry(answer);
   const state: GameState = {
-    answer: answer.toLowerCase(),
+    answer: answerEntry.text,
+    answerKey: answerEntry.key,
     guesses: [],
     evaluations: [],
     currentGuess: '',
     status: 'playing',
-    message: 'Type a 5-letter word. Enter to submit.',
+    message: strings.dailyLoaded(words.size),
     keyState: new Map(),
+    language,
   };
 
   function updateKeyboard(guess: string, evals: TileState[]) {
@@ -80,9 +177,10 @@ export function createGame(answer: string, validWords: string[]) {
     state,
     addLetter(ch: string) {
       if (state.status !== 'playing') return;
-      if (!/^[a-z]$/.test(ch)) return;
+      const letter = normalizeWord(ch);
+      if (!/^[a-z]$/.test(letter)) return;
       if (state.currentGuess.length >= WORD_LENGTH) return;
-      state.currentGuess += ch;
+      state.currentGuess += letter;
       state.message = '';
     },
     backspace() {
@@ -92,39 +190,43 @@ export function createGame(answer: string, validWords: string[]) {
     submitGuess() {
       if (state.status !== 'playing') return false;
       if (state.currentGuess.length !== WORD_LENGTH) {
-        state.message = 'Not enough letters.';
+        state.message = strings.wrongLength;
         return false;
       }
-      if (!dictionary.has(state.currentGuess)) {
-        state.message = 'Word not in list.';
+      if (!words.has(state.currentGuess)) {
+        state.message = strings.notInDictionary;
         return false;
       }
 
-      const evals = evaluateGuess(state.currentGuess, state.answer);
-      state.guesses.push(state.currentGuess);
+      const guessKey = normalizeWord(state.currentGuess);
+      const guessText = words.display(guessKey);
+      const evals = evaluateGuess(guessKey, state.answerKey);
+      state.guesses.push(guessText);
       state.evaluations.push(evals);
-      updateKeyboard(state.currentGuess, evals);
+      updateKeyboard(guessKey, evals);
 
-      if (state.currentGuess === state.answer) {
+      if (guessKey === state.answerKey) {
         state.status = 'won';
-        state.message = `You solved it in ${state.guesses.length}/6! Press r to play again or q to quit.`;
+        state.message = strings.winMessage(state.guesses.length);
       } else if (state.guesses.length >= MAX_GUESSES) {
         state.status = 'lost';
-        state.message = `Out of guesses. The word was ${state.answer.toUpperCase()}. Press r to play again or q to quit.`;
+        state.message = strings.loseMessage(state.answer);
       } else {
-        state.message = `Guess ${state.guesses.length}/6 recorded.`;
+        state.message = strings.guessRegistered(state.guesses.length);
       }
 
       state.currentGuess = '';
       return true;
     },
-    reset(nextAnswer: string) {
-      state.answer = nextAnswer.toLowerCase();
+    reset(nextAnswer: string | WordEntry) {
+      const nextAnswerEntry = toAnswerEntry(nextAnswer);
+      state.answer = nextAnswerEntry.text;
+      state.answerKey = nextAnswerEntry.key;
       state.guesses = [];
       state.evaluations = [];
       state.currentGuess = '';
       state.status = 'playing';
-      state.message = 'New game. Type a 5-letter word.';
+      state.message = strings.gameReset;
       state.keyState.clear();
     },
   };
