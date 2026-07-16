@@ -175,6 +175,42 @@ describe('OpenTUI view', () => {
     expect(frame).toContain('🟩🟩🟩🟩🟩');
   });
 
+  test('keeps secondary views accessible at their accepted minimum heights', async () => {
+    const app = createApp();
+    const { view, renderOnce, captureCharFrame } = await setup(72, 16);
+
+    app.dispatch({ type: 'openHelp' });
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toContain('Back: Esc or Ctrl+H');
+
+    app.dispatch({ type: 'backToGame' });
+    app.dispatch({ type: 'openProgress' });
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toContain('Back: Esc or Ctrl+P');
+
+    app.dispatch({ type: 'backToGame' });
+    app.dispatch({ type: 'openTips' });
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toContain('Back: Tab or Esc');
+  });
+
+  test('keeps copied results visible at the accepted share height', async () => {
+    const app = createApp();
+    typeWord(app, 'crane');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'share' });
+    const { view, renderOnce, captureCharFrame } = await setup(72, 20);
+
+    view.render(app.snapshot());
+    await renderOnce();
+    const frame = captureCharFrame();
+    expect(frame).toContain('Result copied');
+    expect(frame).toContain('🟩🟩🟩🟩🟩');
+  });
+
   test('destroys the renderable tree without destroying twice', async () => {
     const { view, renderer } = await setup();
     view.destroy();
