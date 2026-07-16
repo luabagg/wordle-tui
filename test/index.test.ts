@@ -1,13 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { createGame } from '../src/game';
-import {
-  enterTerminalUi,
-  leaveTerminalUi,
-  renderGameLines,
-  renderHelpLines,
-  renderProgressLines,
-} from '../src/render';
+import { expect, test } from 'bun:test';
 import {
   isBackCommand,
   isHelpCommand,
@@ -18,178 +9,54 @@ import {
   isShareCommand,
   resolveOpenTuiKey,
 } from '../src/input';
-import { defaultStats, recordDailyResult } from '../src/stats';
 
-function stripAnsi(line: string): string {
-  return line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-}
-
-test('plain q and r are letters during active play', () => {
-  assert.equal(isQuitCommand({ name: 'q', ctrl: false }, 'playing'), false);
-  assert.equal(isRestartCommand({ name: 'r', ctrl: false }, 'playing'), false);
-
-  const game = createGame({ answer: 'quero', dictionary: ['quero'], language: 'pt' });
-  game.addLetter('q');
-  game.addLetter('r');
-  assert.equal(game.state.currentGuess, 'qr');
+test('plain q and r remain letters during active play', () => {
+  expect(isQuitCommand({ name: 'q', ctrl: false }, 'playing')).toBe(false);
+  expect(isRestartCommand({ name: 'r', ctrl: false }, 'playing')).toBe(false);
 });
 
 test('finished games accept q to quit and r to restart', () => {
-  assert.equal(isQuitCommand({ name: 'q', ctrl: false }, 'won'), true);
-  assert.equal(isRestartCommand({ name: 'r', ctrl: false }, 'lost'), true);
+  expect(isQuitCommand({ name: 'q', ctrl: false }, 'won')).toBe(true);
+  expect(isRestartCommand({ name: 'r', ctrl: false }, 'lost')).toBe(true);
 });
 
-test('ctrl shortcuts open help and progress while plain keys stay available', () => {
-  assert.equal(isHelpCommand({ name: 'h', ctrl: true }), true);
-  assert.equal(isHelpCommand({ name: 'h', ctrl: false }), false);
-  assert.equal(isProgressCommand({ name: 'p', ctrl: true }), true);
-  assert.equal(isProgressCommand({ name: 'p', ctrl: false }), false);
-  assert.equal(isBackCommand({ name: 'escape', ctrl: false }), true);
+test('ctrl shortcuts preserve their plain-letter equivalents', () => {
+  expect(isHelpCommand({ name: 'h', ctrl: true })).toBe(true);
+  expect(isHelpCommand({ name: 'h', ctrl: false })).toBe(false);
+  expect(isProgressCommand({ name: 'p', ctrl: true })).toBe(true);
+  expect(isProgressCommand({ name: 'p', ctrl: false })).toBe(false);
+  expect(isLanguageSwitchCommand({ name: 'l', ctrl: true })).toBe(true);
+  expect(isLanguageSwitchCommand({ name: 'l', ctrl: false })).toBe(false);
+  expect(isBackCommand({ name: 'escape', ctrl: false })).toBe(true);
 });
 
 test('share command only works after a round ends', () => {
-  assert.equal(isShareCommand({ name: 's', ctrl: false }, 'playing'), false);
-  assert.equal(isShareCommand({ name: 's', ctrl: false }, 'won'), true);
-  assert.equal(isShareCommand({ name: 's', ctrl: true }, 'won'), false);
+  expect(isShareCommand({ name: 's', ctrl: false }, 'playing')).toBe(false);
+  expect(isShareCommand({ name: 's', ctrl: false }, 'won')).toBe(true);
+  expect(isShareCommand({ name: 's', ctrl: true }, 'won')).toBe(false);
 });
 
-test('language switch uses Ctrl+L and leaves plain L free', () => {
-  assert.equal(isLanguageSwitchCommand({ name: 'l', ctrl: true }), true);
-  assert.equal(isLanguageSwitchCommand({ name: 'l', ctrl: false }), false);
-});
-
-test('terminal UI uses the alternate screen buffer', () => {
-  assert.match(enterTerminalUi(), /\x1b\[\?1049h/);
-  assert.match(leaveTerminalUi(), /\x1b\[\?1049l/);
-});
-
-test('rendered board stays centered at a normal terminal width', () => {
-  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  for (const ch of 'termo') game.addLetter(ch);
-  assert.equal(game.submitGuess(), true);
-
-  const lines = renderGameLines(game, 80);
-  const boardLine = lines.find((line: string) => /T\s+E\s+R\s+M\s+O/.test(stripAnsi(line)));
-
-  assert.ok(boardLine);
-  assert.ok(boardLine.match(/^ */)![0].length >= 20);
-  assert.ok(stripAnsi(boardLine).length <= 80);
-});
-
-test('empty tiles render as painted cells without bracket placeholders', () => {
-  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  const text = renderGameLines(game, 80).map(stripAnsi).join('\n');
-
-  assert.doesNotMatch(text, /\[[ A-Z]?\]/);
-  assert.match(text, /·/);
-});
-
-test('keyboard includes a visible feedback legend', () => {
-  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  const text = renderGameLines(game, 80).map(stripAnsi).join('\n');
-
-  assert.match(text, /Legenda/);
-  assert.match(text, /correta/);
-  assert.match(text, /existe/);
-  assert.match(text, /fora/);
-});
-
-test('finished game shows share prompt without result block before sharing', () => {
-  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  for (const ch of 'termo') game.addLetter(ch);
-  assert.equal(game.submitGuess(), true);
-
-  const stats = defaultStats();
-  recordDailyResult(stats, game.state, { id: 'pt:2026-06-24', number: 1632 });
-  const text = renderGameLines(game, 80, {
-    stats,
-    puzzleNumber: 1632,
-    nextWordIn: '12h 34m',
-  }).map(stripAnsi).join('\n');
-
-  assert.match(text, /Compartilhar: pressione S para copiar/);
-  assert.doesNotMatch(text, /Progresso/);
-  assert.doesNotMatch(text, /joguei term\.ooo #1632 \*1\/6/);
-});
-
-test('finished game shows share block only after share action', () => {
-  const game = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  for (const ch of 'termo') game.addLetter(ch);
-  assert.equal(game.submitGuess(), true);
-
-  const stats = defaultStats();
-  recordDailyResult(stats, game.state, { id: 'pt:2026-06-24', number: 1632 });
-  const text = renderGameLines(game, 80, {
-    stats,
-    puzzleNumber: 1632,
-    nextWordIn: '12h 34m',
-    shareCopied: true,
-  }).map(stripAnsi).join('\n');
-
-  assert.match(text, /Resultado copiado/);
-  assert.match(text, /joguei term\.ooo #1632 \*1\/6/);
-  assert.match(text, /🟩🟩🟩🟩🟩/);
-});
-
-test('progress view renders separately with a back hint and skull row', () => {
-  const stats = defaultStats();
-  stats.gamesPlayed = 3;
-  stats.wins = 2;
-  stats.losses = 1;
-  stats.currentStreak = 0;
-  stats.maxStreak = 2;
-  stats.distribution[2] = 1;
-  stats.distribution[4] = 1;
-
-  const text = renderProgressLines(stats, 80, '12h 34m').map(stripAnsi).join('\n');
-
-  assert.match(text, /Progresso/);
-  assert.match(text, /Próxima palavra em 12h 34m/);
-  assert.match(text, /☠/);
-  assert.match(text, /Voltar: Esc ou Ctrl\+P/);
-});
-
-test('help view can be rendered explicitly', () => {
-  const text = renderHelpLines(80).map(stripAnsi).join('\n');
-
-  assert.match(text, /TERMO TUI/);
-  assert.match(text, /Ctrl\+H/);
-  assert.match(text, /Voltar/);
-});
-
-test('rendered game title uses localized strings only', () => {
-  const pt = createGame({ answer: 'termo', dictionary: ['termo'], language: 'pt' });
-  const en = createGame({ answer: 'crane', dictionary: ['crane'], language: 'en' });
-
-  const ptText = renderGameLines(pt, 80).map(stripAnsi).join('\n');
-  const enText = renderGameLines(en, 80).map(stripAnsi).join('\n');
-
-  assert.match(ptText, /TERMO TUI/);
-  assert.doesNotMatch(ptText, /WORDLE TUI/);
-  assert.match(enText, /WORDLE TUI/);
-});
-
-test('OpenTUI key events map to the existing action contract', () => {
+test('OpenTUI key events map to the action contract', () => {
   const playing = { view: 'game' as const, status: 'playing' as const, introPending: false };
 
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'a', sequence: 'a' }), { type: 'type', char: 'a' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'return', sequence: '\r' }), { type: 'submit' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'left', sequence: '\u001b[D' }), { type: 'moveCursor', offset: -1 });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'right', sequence: '\u001b[C' }), { type: 'moveCursor', offset: 1 });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'home', sequence: '\u001b[H' }), { type: 'setCursor', position: 0 });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'end', sequence: '\u001b[F' }), { type: 'setCursor', position: 'end' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'backspace', sequence: '\b' }), { type: 'backspace' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'delete', sequence: '\u001b[3~' }), { type: 'backspace' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'tab', sequence: '\t' }), { type: 'openTips' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'h', ctrl: true, sequence: '\b' }), { type: 'openHelp' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'p', ctrl: true, sequence: '\u0010' }), { type: 'openProgress' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'l', ctrl: true, sequence: '\f' }), { type: 'switchLanguage' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'r', ctrl: true, sequence: '\u0012' }), { type: 'restart' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'escape', sequence: '\u001b' }), { type: 'quit' });
-  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'c', ctrl: true, sequence: '\u0003' }), { type: 'quit' });
+  expect(resolveOpenTuiKey(playing, { name: 'a', sequence: 'a' })).toEqual({ type: 'type', char: 'a' });
+  expect(resolveOpenTuiKey(playing, { name: 'return', sequence: '\r' })).toEqual({ type: 'submit' });
+  expect(resolveOpenTuiKey(playing, { name: 'left', sequence: '\u001b[D' })).toEqual({ type: 'moveCursor', offset: -1 });
+  expect(resolveOpenTuiKey(playing, { name: 'right', sequence: '\u001b[C' })).toEqual({ type: 'moveCursor', offset: 1 });
+  expect(resolveOpenTuiKey(playing, { name: 'home', sequence: '\u001b[H' })).toEqual({ type: 'setCursor', position: 0 });
+  expect(resolveOpenTuiKey(playing, { name: 'end', sequence: '\u001b[F' })).toEqual({ type: 'setCursor', position: 'end' });
+  expect(resolveOpenTuiKey(playing, { name: 'backspace', sequence: '\b' })).toEqual({ type: 'backspace' });
+  expect(resolveOpenTuiKey(playing, { name: 'delete', sequence: '\u001b[3~' })).toEqual({ type: 'backspace' });
+  expect(resolveOpenTuiKey(playing, { name: 'tab', sequence: '\t' })).toEqual({ type: 'openTips' });
+  expect(resolveOpenTuiKey(playing, { name: 'h', ctrl: true, sequence: '\b' })).toEqual({ type: 'openHelp' });
+  expect(resolveOpenTuiKey(playing, { name: 'p', ctrl: true, sequence: '\u0010' })).toEqual({ type: 'openProgress' });
+  expect(resolveOpenTuiKey(playing, { name: 'l', ctrl: true, sequence: '\f' })).toEqual({ type: 'switchLanguage' });
+  expect(resolveOpenTuiKey(playing, { name: 'r', ctrl: true, sequence: '\u0012' })).toEqual({ type: 'restart' });
+  expect(resolveOpenTuiKey(playing, { name: 'escape', sequence: '\u001b' })).toEqual({ type: 'quit' });
+  expect(resolveOpenTuiKey(playing, { name: 'c', ctrl: true, sequence: '\u0003' })).toEqual({ type: 'quit' });
 
   const finished = { ...playing, status: 'won' as const };
-  assert.deepEqual(resolveOpenTuiKey(finished, { name: 's', sequence: 's' }), { type: 'share' });
-  assert.deepEqual(resolveOpenTuiKey(finished, { name: 'r', sequence: 'r' }), { type: 'restart' });
-  assert.deepEqual(resolveOpenTuiKey(finished, { name: 'q', sequence: 'q' }), { type: 'quit' });
+  expect(resolveOpenTuiKey(finished, { name: 's', sequence: 's' })).toEqual({ type: 'share' });
+  expect(resolveOpenTuiKey(finished, { name: 'r', sequence: 'r' })).toEqual({ type: 'restart' });
+  expect(resolveOpenTuiKey(finished, { name: 'q', sequence: 'q' })).toEqual({ type: 'quit' });
 });

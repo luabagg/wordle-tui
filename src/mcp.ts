@@ -171,11 +171,4 @@ async function main() {
   await server.connect(transport);
 }
 
-if (require.main === module) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
-
 export { main };
