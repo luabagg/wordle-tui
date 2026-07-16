@@ -16,6 +16,7 @@ import {
   isQuitCommand,
   isRestartCommand,
   isShareCommand,
+  resolveOpenTuiKey,
 } from '../src/input';
 import { defaultStats, recordDailyResult } from '../src/stats';
 
@@ -166,4 +167,14 @@ test('rendered game title uses localized strings only', () => {
   assert.match(ptText, /TERMO TUI/);
   assert.doesNotMatch(ptText, /WORDLE TUI/);
   assert.match(enText, /WORDLE TUI/);
+});
+
+test('OpenTUI key events map to the existing action contract', () => {
+  const context = { view: 'game' as const, status: 'playing' as const, introPending: false };
+
+  assert.deepEqual(resolveOpenTuiKey(context, { name: 'a', sequence: 'a' }), { type: 'type', char: 'a' });
+  assert.deepEqual(resolveOpenTuiKey(context, { name: 'enter', sequence: '\r' }), { type: 'submit' });
+  assert.deepEqual(resolveOpenTuiKey(context, { name: 'left', sequence: '\u001b[D' }), { type: 'moveCursor', offset: -1 });
+  assert.deepEqual(resolveOpenTuiKey(context, { name: 'h', ctrl: true, sequence: '\b' }), { type: 'openHelp' });
+  assert.deepEqual(resolveOpenTuiKey(context, { name: 'c', ctrl: true, sequence: '\u0003' }), { type: 'quit' });
 });
