@@ -24,11 +24,14 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()?.();
 });
 
-function createApp(copyText: (text: string) => boolean = () => true) {
+function createApp(
+  copyText: (text: string) => boolean = () => true,
+  language: 'en' | 'pt' = 'en',
+) {
   const stats = defaultStats();
   stats.introSeen = true;
   return createWordleApp({
-    language: 'en',
+    language,
     banks,
     stats,
     effects: {
@@ -69,19 +72,25 @@ describe('OpenTUI view', () => {
     expect((frame.match(/·/g) || []).length).toBeGreaterThanOrEqual(30);
   });
 
-  test('renders evaluated tile colors through OpenTUI spans', async () => {
+  test('renders active, evaluated, and keyboard tile colors through OpenTUI spans', async () => {
     const app = createApp();
-    typeWord(app, 'crane');
+    const setupResult = await setup();
+
+    setupResult.view.render(app.snapshot());
+    await setupResult.renderOnce();
+    const active = setupResult.captureSpans().lines
+      .flatMap((line) => line.spans)
+      .find((span) => span.text === '·' && span.bg.toInts()[2] === 248);
+    expect(active?.bg.toInts().slice(0, 3)).toEqual([56, 189, 248]);
+
+    typeWord(app, 'slate');
     app.dispatch({ type: 'submit' });
-    const { view, renderOnce, captureSpans } = await setup();
+    setupResult.view.render(app.snapshot());
+    await setupResult.renderOnce();
+    const spans = setupResult.captureSpans().lines.flatMap((line) => line.spans);
+    const coloredS = spans.filter((span) => span.text === 'S' && span.bg.toInts()[0] === 161);
 
-    view.render(app.snapshot());
-    await renderOnce();
-    const spans = captureSpans().lines.flatMap((line) => line.spans);
-    const correctLetter = spans.find((span) => span.text === 'C' && span.bg.toInts()[1] === 239);
-
-    expect(correctLetter).toBeDefined();
-    expect(correctLetter?.bg.toInts().slice(0, 3)).toEqual([134, 239, 172]);
+    expect(coloredS.length).toBeGreaterThanOrEqual(2);
   });
 
   test('renders help, progress, and tips as distinct views', async () => {
@@ -108,15 +117,46 @@ describe('OpenTUI view', () => {
     expect(tipsFrame).toContain('Top entropy guesses');
   });
 
-  test('shows a clear minimum-size message after resize', async () => {
-    const app = createApp();
+  test('shows a localized minimum-size message after resize', async () => {
+    const app = createApp(() => true, 'pt');
     const { view, renderOnce, captureCharFrame, resize } = await setup();
 
     resize(25, 10);
     view.render(app.snapshot());
     await renderOnce();
 
-    expect(captureCharFrame()).toContain('Terminal too small');
+    const frame = captureCharFrame();
+    expect(frame).toContain('TERMO TUI');
+    expect(frame.replace(/\s+/g, ' ')).toContain('Terminal pequeno demais');
+  });
+
+  test('uses a compact board-first layout at a short but supported size', async () => {
+    const app = createApp();
+    const { view, renderOnce, captureCharFrame } = await setup(40, 17);
+
+    view.render(app.snapshot());
+    await renderOnce();
+    const frame = captureCharFrame();
+
+    expect(frame).toContain('WORDLE TUI');
+    expect((frame.match(/·/g) || []).length).toBeGreaterThanOrEqual(30);
+    expect(frame).not.toMatch(/Q\s+W\s+E\s+R\s+T\s+Y/);
+  });
+
+  test('shows a finished share prompt and successful copy state', async () => {
+    const app = createApp();
+    typeWord(app, 'crane');
+    app.dispatch({ type: 'submit' });
+    const { view, renderOnce, captureCharFrame } = await setup();
+
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toContain('Share: press S to copy');
+
+    app.dispatch({ type: 'share' });
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toContain('Result copied');
   });
 
   test('reveals share text even when clipboard support is unavailable', async () => {

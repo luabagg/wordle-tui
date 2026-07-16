@@ -142,14 +142,12 @@ export function createOpenTuiView(renderer: CliRenderer): OpenTuiView {
     alignItems: 'center',
   });
   const sizeTitle = createText(renderer, {
-    content: 'WORDLE TUI',
     fg: palette.accent,
     attributes: TextAttributes.BOLD,
     height: 1,
   });
   const sizeMessage = createText(renderer, {
     width: '100%',
-    content: 'Terminal too small. Resize to at least 30 × 12.',
     fg: palette.present,
   });
   sizePanel.add(sizeTitle);
@@ -403,8 +401,11 @@ export function createOpenTuiView(renderer: CliRenderer): OpenTuiView {
   function renderTips(snapshot: AppSnapshot): void {
     const strings = messages[snapshot.language];
     const data = snapshot.tips;
-    const rows = data?.ranked.slice(0, 8).map((score) =>
-      `${score.guess.toUpperCase().padEnd(5)}  ${score.entropy.toFixed(2).padStart(5)} bits  ${score.topPattern}`,
+    const compact = renderer.width < 48;
+    const rowLimit = Math.max(3, Math.min(8, renderer.height - 8));
+    const rows = data?.ranked.slice(0, rowLimit).map((score) => compact
+      ? `${score.guess.toUpperCase().padEnd(5)}  ${score.entropy.toFixed(2)} bits`
+      : `${score.guess.toUpperCase().padEnd(5)}  ${score.entropy.toFixed(2).padStart(5)} bits  ${score.topPattern}`,
     ) ?? [];
     tips.title.content = strings.tipsTitle;
     tips.body.content = data
@@ -420,8 +421,17 @@ export function createOpenTuiView(renderer: CliRenderer): OpenTuiView {
   }
 
   function render(snapshot: AppSnapshot): void {
-    const tooSmall = renderer.width < 30 || renderer.height < 12;
-    const compact = renderer.width < 48 || renderer.height < 23;
+    const compactWidth = renderer.width < 48;
+    const minimumHeight = snapshot.view === 'game'
+      ? snapshot.shareCopied
+        ? compactWidth ? 22 : 20
+        : 16
+      : compactWidth ? 22 : 16;
+    const tooSmall = renderer.width < 30 || renderer.height < minimumHeight;
+    const compact = compactWidth || renderer.height < 23;
+    const strings = messages[snapshot.language];
+    sizeTitle.content = strings.title;
+    sizeMessage.content = strings.terminalTooSmall;
     setPanelVisible(sizePanel, tooSmall);
     setPanelVisible(gamePanel, !tooSmall && snapshot.view === 'game');
     setPanelVisible(help.panel, !tooSmall && snapshot.view === 'help');

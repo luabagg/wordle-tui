@@ -31,6 +31,7 @@ export interface GameStrings {
   sharePrompt: string;
   shareCopied: string;
   shareUnavailable: string;
+  terminalTooSmall: string;
   tipsTitle: string;
   tipsCandidateCount: (count: number) => string;
   tipsBestCandidate: (word: string) => string;
@@ -72,6 +73,7 @@ export const messages: Record<Language, GameStrings> = {
     sharePrompt: 'Share: press S to copy',
     shareCopied: 'Result copied.',
     shareUnavailable: 'Clipboard unavailable. Copy the result below.',
+    terminalTooSmall: 'Terminal too small for this view. Resize the window.',
     tipsTitle: ' TIPS ',
     tipsCandidateCount: (count) => `${count} candidate${count === 1 ? '' : 's'} remain`,
     tipsBestCandidate: (word) => `Best candidate: ${word.toUpperCase()}`,
@@ -111,6 +113,7 @@ export const messages: Record<Language, GameStrings> = {
     sharePrompt: 'Compartilhar: pressione S para copiar',
     shareCopied: 'Resultado copiado.',
     shareUnavailable: 'Área de transferência indisponível. Copie o resultado abaixo.',
+    terminalTooSmall: 'Terminal pequeno demais para esta tela. Aumente a janela.',
     tipsTitle: ' DICAS ',
     tipsCandidateCount: (count) => `${count} candidato${count === 1 ? '' : 's'} restante${count === 1 ? '' : 's'}`,
     tipsBestCandidate: (word) => `Melhor candidato: ${word.toUpperCase()}`,
