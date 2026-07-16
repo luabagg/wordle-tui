@@ -30,6 +30,7 @@ export interface GameStrings {
   progressBack: string;
   sharePrompt: string;
   shareCopied: string;
+  shareUnavailable: string;
   tipsTitle: string;
   tipsCandidateCount: (count: number) => string;
   tipsBestCandidate: (word: string) => string;
@@ -69,7 +70,8 @@ export const messages: Record<Language, GameStrings> = {
     progressNextWord: (nextWordIn) => `Next word in ${nextWordIn}`,
     progressBack: 'Back: Esc or Ctrl+P',
     sharePrompt: 'Share: press S to copy',
-    shareCopied: 'Result copied. If the terminal blocks, copy the block below.',
+    shareCopied: 'Result copied.',
+    shareUnavailable: 'Clipboard unavailable. Copy the result below.',
     tipsTitle: ' TIPS ',
     tipsCandidateCount: (count) => `${count} candidate${count === 1 ? '' : 's'} remain`,
     tipsBestCandidate: (word) => `Best candidate: ${word.toUpperCase()}`,
@@ -107,7 +109,8 @@ export const messages: Record<Language, GameStrings> = {
     progressNextWord: (nextWordIn) => `Próxima palavra em ${nextWordIn}`,
     progressBack: 'Voltar: Esc ou Ctrl+P',
     sharePrompt: 'Compartilhar: pressione S para copiar',
-    shareCopied: 'Resultado copiado. Se o terminal bloquear, copie o bloco abaixo.',
+    shareCopied: 'Resultado copiado.',
+    shareUnavailable: 'Área de transferência indisponível. Copie o resultado abaixo.',
     tipsTitle: ' DICAS ',
     tipsCandidateCount: (count) => `${count} candidato${count === 1 ? '' : 's'} restante${count === 1 ? '' : 's'}`,
     tipsBestCandidate: (word) => `Melhor candidato: ${word.toUpperCase()}`,
