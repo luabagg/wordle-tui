@@ -149,7 +149,3 @@ export function distributionRows(stats: GameStats): string[] {
   rows.push(`☠ ${lossBar} ${losses}`);
   return rows;
 }
-
-export function osc52CopySequence(text: string): string {
-  return `\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`;
-}

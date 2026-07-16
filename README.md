@@ -1,79 +1,127 @@
-# Termo TUI (TypeScript)
+# Wordle TUI
 
-A keyboard-driven Portuguese word game for the terminal, authored in TypeScript
-and shaped after the core term.ooo experience.
+A bilingual daily word game for the terminal, built with Bun, TypeScript, and [OpenTUI](https://github.com/anomalyco/opentui).
 
-## How To Play
+- Portuguese Termo-style mode (`pt`, default)
+- English Wordle-style mode (`en`)
+- Local dictionaries; no runtime network dependency
+- Daily puzzles, statistics, streaks, share output, and solver tips
+- Keyboard-first OpenTUI interface
+- Optional MCP server using the same game domain
 
-Discover the correct five-letter Portuguese word in 6 tries.
+## Requirements
 
-Each guess must be a valid 5-letter Portuguese word. Hit `Enter` to submit.
+- [Bun](https://bun.sh/) 1.3 or newer
+- An interactive terminal with color support
 
-After each guess, the color of the tiles will change to show how close your
-guess was to the word.
-
-Accents are filled automatically, and accents/diacritics are ignored for hints.
-Words may contain repeated letters.
-
-### Examples
-
-Green tile: The letter T is in the word and in the correct spot.
-
-Yellow tile: The letter O is in the word but in the wrong spot.
-
-Gray tile: The letter G is not in the word in any spot.
-
-A deterministic daily answer is selected from the bundled answer list. Restarting
-the same session restarts the current daily word.
-
-The first run shows a short introduction screen. Daily progress, streaks, and
-guess distribution are saved locally under the user's state directory.
-
-## Install / run with npx
-
-After publishing this package, users can run it directly with:
+## Install
 
 ```bash
-npx wordle-tui
+bun install
 ```
 
-For local development in this repo:
+## Run
+
+Portuguese:
 
 ```bash
-npm run build
-npx --yes .
+bun run start
 ```
 
-## Dictionary source
+English:
 
-The game uses a **local bundled dictionary only** (no network dependency at runtime):
+```bash
+bun run start -- --lang=en
+```
 
-- 11,000+ accepted five-letter Brazilian Portuguese words from
-  `src/dict/pt/all.json`.
-- A 2,000-word common subset from `src/dict/pt/answers.json` is used for daily answers.
+The short form is also supported:
 
-See `THIRD_PARTY_NOTICES.md` for word-list attribution.
-
-## Why there is no `node-shim` now
-
-A `node-shim` file was previously used to fake Node typings in restricted environments. It has been removed to keep the project cleaner and simpler.
+```bash
+bun run start -- -l en
+```
 
 ## Controls
 
-- Type letters to build a guess.
-- `Left` / `Right`, `Home`, and `End` move inside the current guess.
-- `Enter` submits a guess.
-- `Backspace` removes a letter.
-- `Ctrl+H` opens help.
-- `Ctrl+P` opens progress. `Esc` or `Ctrl+P` returns from progress.
-- `Esc`, `Ctrl+C`, or `Ctrl+Q` quits during play.
-- `Ctrl+R` starts a new game during play.
-- After a round ends, `r` starts a new game and `q` quits.
-- After a round ends, `s` copies the Termo-style share result when the terminal
-  supports clipboard escape sequences. The share block is also shown on screen.
+### During play
 
-## Test
+- Letters: enter or replace letters in the current guess
+- `Left` / `Right`: move within the typed portion of the guess
+- `Home` / `End`: jump to the start or end
+- `Enter`: submit
+- `Backspace` / `Delete`: remove the previous letter
+- `Tab`: tips
+- `Ctrl+H`: help
+- `Ctrl+P`: progress
+- `Ctrl+L`: switch language and restart the daily puzzle
+- `Ctrl+R`: restart
+- `Esc`, `Ctrl+C`, `Ctrl+Q`: quit
+
+### After a round
+
+- `S`: copy and reveal the share result
+- `R`: restart
+- `Q`: quit
+
+In help, progress, and tips, `Esc` returns to the game. The matching shortcut also closes each view.
+
+## Daily game and statistics
+
+Each language has its own daily calendar, answer list, puzzle number, and result history. Completed daily results, streaks, win distribution, and intro state are saved locally:
+
+- `$XDG_STATE_HOME/wordle-tui/stats.json`, when `XDG_STATE_HOME` is set
+- otherwise `~/.local/state/wordle-tui/stats.json`
+
+The current in-progress board is not yet restored after restarting the process; see `docs/core-implementation-gap-audit.md` for the documented backlog.
+
+## Tips
+
+Press `Tab` to see:
+
+- remaining answer candidates
+- the best remaining answer candidate
+- entropy-ranked guesses
+
+Tips use only bundled local dictionaries.
+
+## MCP mode
+
+Start the stdio MCP server without initializing the terminal UI:
 
 ```bash
-npm test
+bun run mcp
 ```
+
+Available tools:
+
+- `start_game`
+- `get_state`
+- `submit_guess`
+- `switch_language`
+- `get_tips`
+
+## Development
+
+```bash
+bun run typecheck
+bun test ./test
+bun run build
+```
+
+Run all verification:
+
+```bash
+bun run check
+```
+
+The production bundle is generated at `dist/wordle-tui.js`. Runtime packages remain external so OpenTUI can resolve the correct native package for the current platform.
+
+## Dictionaries
+
+All dictionaries are bundled locally:
+
+- Portuguese accepted words: `src/dict/pt/all.json`
+- Portuguese daily answers: `src/dict/pt/answers.json`
+- English accepted words: `src/dict/en/all.json`
+- English daily answers: `src/dict/en/answers.json`
+
+See `THIRD_PARTY_NOTICES.md` for source and license attribution.
