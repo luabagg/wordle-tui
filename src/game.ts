@@ -25,6 +25,7 @@ export interface GameState {
   guesses: string[];
   evaluations: TileState[][];
   currentGuess: string;
+  cursorPosition: number;
   status: GameStatus;
   message: string;
   keyState: Map<string, TileState>;
@@ -128,6 +129,8 @@ export interface Game {
   state: GameState;
   addLetter(ch: string): void;
   backspace(): void;
+  moveCursor(offset: number): void;
+  setCursorPosition(position: number): void;
   submitGuess(): boolean;
   reset(nextAnswer: string | WordEntry): void;
   switchLanguage(config: GameConfig): void;
@@ -158,6 +161,7 @@ function buildGame(config: GameConfig) {
     guesses: [],
     evaluations: [],
     currentGuess: '',
+    cursorPosition: 0,
     status: 'playing',
     message: strings.dailyLoaded(words.size),
     keyState: new Map(),
@@ -174,19 +178,42 @@ function buildGame(config: GameConfig) {
     }
   }
 
+  function clampCursor(position: number) {
+    return Math.max(0, Math.min(position, state.currentGuess.length));
+  }
+
   return {
     state,
     addLetter(ch: string) {
       if (state.status !== 'playing') return;
       const letter = normalizeWord(ch);
       if (!/^[a-z]$/.test(letter)) return;
-      if (state.currentGuess.length >= WORD_LENGTH) return;
-      state.currentGuess += letter;
+      if (state.currentGuess.length >= WORD_LENGTH && state.cursorPosition >= WORD_LENGTH) return;
+      const chars = Array.from(state.currentGuess);
+      if (state.cursorPosition < chars.length) {
+        chars[state.cursorPosition] = letter;
+      } else {
+        chars.push(letter);
+      }
+      state.currentGuess = chars.join('');
+      state.cursorPosition = Math.min(state.cursorPosition + 1, WORD_LENGTH);
       state.message = '';
     },
     backspace() {
       if (state.status !== 'playing') return;
-      state.currentGuess = state.currentGuess.slice(0, -1);
+      if (state.cursorPosition === 0) return;
+      const chars = Array.from(state.currentGuess);
+      chars.splice(state.cursorPosition - 1, 1);
+      state.currentGuess = chars.join('');
+      state.cursorPosition = clampCursor(state.cursorPosition - 1);
+    },
+    moveCursor(offset: number) {
+      if (state.status !== 'playing') return;
+      state.cursorPosition = clampCursor(state.cursorPosition + offset);
+    },
+    setCursorPosition(position: number) {
+      if (state.status !== 'playing') return;
+      state.cursorPosition = clampCursor(position);
     },
     submitGuess() {
       if (state.status !== 'playing') return false;
@@ -217,6 +244,7 @@ function buildGame(config: GameConfig) {
       }
 
       state.currentGuess = '';
+      state.cursorPosition = 0;
       return true;
     },
     reset(nextAnswer: string | WordEntry) {
@@ -229,6 +257,7 @@ function buildGame(config: GameConfig) {
       state.guesses = [];
       state.evaluations = [];
       state.currentGuess = '';
+      state.cursorPosition = 0;
       state.status = 'playing';
       state.message = strings.gameReset;
       state.keyState.clear();
@@ -248,6 +277,7 @@ function buildGame(config: GameConfig) {
       state.guesses = [];
       state.evaluations = [];
       state.currentGuess = '';
+      state.cursorPosition = 0;
       state.status = 'playing';
       state.message = strings.gameReset;
       state.keyState.clear();

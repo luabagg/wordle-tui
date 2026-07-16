@@ -1,141 +1,220 @@
 #!/usr/bin/env node
 import readline, { Key } from 'node:readline';
-import { createGame, TILE, WORD_LENGTH, MAX_GUESSES, TileState, GameStatus } from './game';
-import { messages } from './i18n';
-import { dailyAnswer, loadWordBank } from './words';
-import { defaultLanguage } from './dictionary';
+import { createGame } from './game';
+import { defaultLanguage, loadWordBank, WordBank } from './dictionary';
+import {
+  dailyAnswer,
+  dailyDescriptor,
+  formatNextDailyCountdown,
+  secondsUntilNextDaily,
+} from './words';
+import {
+  loadStats,
+  osc52CopySequence,
+  recordDailyResult,
+  saveStats,
+  buildShareText,
+} from './stats';
+import {
+  enterTerminalUi,
+  leaveTerminalUi,
+  terminal,
+  renderGameLines,
+  renderHelpLines,
+  renderProgressLines,
+  RenderGameOptions,
+} from './render';
+import { renderTips } from './tips';
+import { filterCandidates, normalizeAll, rankGuesses, bestWinProbabilityGuess } from './solver';
+import { Action, View, resolveKey } from './input';
+import { Language } from './i18n';
 
-const colors = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  fgWhite: '\x1b[97m',
-  fgGray: '\x1b[90m',
-  fgGreen: '\x1b[38;5;40m',
-  fgYellow: '\x1b[38;5;220m',
-  fgRed: '\x1b[38;5;203m',
-  bgAbsent: '\x1b[48;5;240m',
-  bgPresent: '\x1b[48;5;178m',
-  bgCorrect: '\x1b[48;5;34m',
-  bgPanel: '\x1b[48;5;236m',
-};
-
-const keyRows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
-const terminal = {
-  enterAltScreen: '\x1b[?1049h',
-  leaveAltScreen: '\x1b[?1049l',
-  hideCursor: '\x1b[?25l',
-  showCursor: '\x1b[?25h',
-  clearScreen: '\x1b[2J\x1b[H',
-};
-
-function bgForTile(tile: TileState): string {
-  if (tile === TILE.CORRECT) return colors.bgCorrect;
-  if (tile === TILE.PRESENT) return colors.bgPresent;
-  if (tile === TILE.ABSENT) return colors.bgAbsent;
-  return '';
-}
-
-function center(line: string, width: number): string {
-  if (line.length >= width) return line;
-  const pad = Math.floor((width - line.length) / 2);
-  return `${' '.repeat(pad)}${line}`;
-}
-
-function statusColor(status: GameStatus): string {
-  if (status === 'won') return colors.fgGreen;
-  if (status === 'lost') return colors.fgRed;
-  return colors.fgYellow;
-}
-
-export function isQuitCommand(key: Pick<Key, 'ctrl' | 'name'>, status: GameStatus): boolean {
-  return (key.ctrl && key.name === 'c')
-    || (key.ctrl && key.name === 'q')
-    || key.name === 'escape'
-    || (status !== 'playing' && key.name === 'q');
-}
-
-export function isRestartCommand(key: Pick<Key, 'ctrl' | 'name'>, status: GameStatus): boolean {
-  return (key.ctrl && key.name === 'r') || (status !== 'playing' && key.name === 'r');
-}
-
-export function enterTerminalUi(): string {
-  return `${terminal.enterAltScreen}${terminal.hideCursor}${terminal.clearScreen}`;
-}
-
-export function leaveTerminalUi(): string {
-  return `${terminal.showCursor}${colors.reset}${terminal.leaveAltScreen}`;
-}
-
-function tile(letter: string | undefined, state: TileState): string {
-  const ch = letter ? letter.toUpperCase() : ' ';
-  const bg = bgForTile(state);
-  const text = state === TILE.EMPTY ? `${colors.fgGray}${ch}${colors.reset}` : `${colors.fgWhite}${colors.bold}${ch}${colors.reset}`;
-  if (state === TILE.EMPTY) return `[${text}]`;
-  return `${bg} ${text} ${colors.reset}`;
-}
-
-function draw(game: ReturnType<typeof createGame>): void {
-  const width = process.stdout.columns || 80;
-  const strings = messages[game.state.language];
-  const guessesLeft = MAX_GUESSES - game.state.guesses.length;
-  const controls = game.state.status === 'playing' ? strings.controlsPlaying : strings.controlsFinished;
-  const lines: string[] = [];
-  lines.push('');
-  lines.push(center(`${colors.bold}${strings.title}${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}${strings.subtitle}${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}${strings.guessesUsed(game.state.guesses.length, guessesLeft)}${colors.reset}`, width));
-  lines.push(center(`${colors.fgGray}${controls}${colors.reset}`, width));
-  if (strings.accentHint) lines.push(center(`${colors.fgGray}${strings.accentHint}${colors.reset}`, width));
-  lines.push('');
-
-  for (let r = 0; r < MAX_GUESSES; r += 1) {
-    let row = '';
-    if (r < game.state.guesses.length) {
-      const guess = Array.from(game.state.guesses[r]);
-      const evals = game.state.evaluations[r];
-      for (let c = 0; c < WORD_LENGTH; c += 1) row += `${tile(guess[c], evals[c])} `;
-    } else if (r === game.state.guesses.length) {
-      const currentGuess = Array.from(game.state.currentGuess);
-      for (let c = 0; c < WORD_LENGTH; c += 1) row += `${tile(currentGuess[c], TILE.EMPTY)} `;
-    } else {
-      for (let c = 0; c < WORD_LENGTH; c += 1) row += `${tile('', TILE.EMPTY)} `;
-    }
-    lines.push(center(row.trimEnd(), width));
+function parseLanguage(argv: string[]): Language {
+  const flagIndex = argv.findIndex((arg) => arg === '--lang' || arg === '-l');
+  if (flagIndex >= 0 && argv[flagIndex + 1]) {
+    const value = argv[flagIndex + 1].toLowerCase();
+    if (value === 'en' || value === 'pt') return value;
   }
 
-  lines.push('');
-  for (const row of keyRows) {
-    const keys = row.split('').map((k) => {
-      const state = game.state.keyState.get(k) || TILE.EMPTY;
-      const bg = bgForTile(state);
-      if (state === TILE.EMPTY) return `${colors.bgPanel} ${k.toUpperCase()} ${colors.reset}`;
-      return `${bg}${colors.fgWhite}${colors.bold} ${k.toUpperCase()} ${colors.reset}`;
-    }).join(' ');
-    lines.push(center(keys, width));
+  const inline = argv.find((arg) => arg.startsWith('--lang='));
+  if (inline) {
+    const value = inline.slice('--lang='.length).toLowerCase();
+    if (value === 'en' || value === 'pt') return value;
   }
 
-  lines.push('');
-  lines.push(center(`${statusColor(game.state.status)}${game.state.message || ' '}${colors.reset}`, width));
-  lines.push('');
-
-  process.stdout.write(terminal.clearScreen);
-  process.stdout.write(lines.join('\n'));
+  return defaultLanguage();
 }
 
-export async function run() {
+function otherLanguage(language: Language): Language {
+  return language === 'en' ? 'pt' : 'en';
+}
+
+export async function run(argv = process.argv.slice(2)) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     process.stderr.write('This game requires an interactive terminal (TTY).\n');
     process.exit(1);
   }
 
-  const initialLanguage = defaultLanguage();
-  const bank = loadWordBank();
-  const todayAnswer = dailyAnswer(bank.answers);
+  let language = parseLanguage(argv);
+  const banks: Record<Language, WordBank> = {
+    en: loadWordBank('en'),
+    pt: loadWordBank('pt'),
+  };
+
+  let bank = banks[language];
+  let daily = dailyDescriptor(language);
+  let todayAnswer = dailyAnswer(language, bank.answers);
   const game = createGame({
     answer: todayAnswer,
-    dictionary: bank.dictionary,
-    language: initialLanguage,
+    dictionary: bank.allWords,
+    language,
   });
+  const stats = loadStats();
+  let view: View = stats.introSeen ? 'game' : 'help';
+  let introPending = !stats.introSeen;
+  let shareCopied = false;
+
+  function renderOptions(): RenderGameOptions {
+    return {
+      stats,
+      puzzleNumber: daily.number,
+      nextWordIn: formatNextDailyCountdown(secondsUntilNextDaily(language)),
+      shareCopied,
+    };
+  }
+
+  function buildTips() {
+    const history = game.state.guesses.map((guess, index) => ({
+      guess: normalizeAll([guess])[0],
+      evals: game.state.evaluations[index],
+    }));
+    const candidateKeys = bank.answers.map((entry) => entry.key);
+    const candidates = filterCandidates(candidateKeys, history);
+    const guessPool = candidates.length > 0
+      ? candidateKeys
+      : Object.keys(bank.allWords);
+    const ranked = rankGuesses(guessPool, candidates);
+    return renderTips({
+      language: game.state.language,
+      candidates,
+      ranked,
+      bestCandidate: bestWinProbabilityGuess(candidates),
+      width: process.stdout.columns || 80,
+    });
+  }
+
+  function draw() {
+    const width = process.stdout.columns || 80;
+    process.stdout.write(terminal.clearScreen);
+    if (view === 'help') {
+      process.stdout.write(renderHelpLines(width, game.state.language).join('\n'));
+    } else if (view === 'progress') {
+      process.stdout.write(renderProgressLines(
+        stats,
+        width,
+        formatNextDailyCountdown(secondsUntilNextDaily(language)),
+        game.state.language,
+      ).join('\n'));
+    } else if (view === 'tips') {
+      process.stdout.write(buildTips().join('\n'));
+    } else {
+      process.stdout.write(renderGameLines(game, width, renderOptions()).join('\n'));
+    }
+  }
+
+  function completeIntro() {
+    introPending = false;
+    stats.introSeen = true;
+    saveStats(stats);
+  }
+
+  function recordIfFinished() {
+    if (game.state.status === 'playing') return;
+    const result = recordDailyResult(stats, game.state, daily);
+    if (result.recorded) saveStats(stats);
+  }
+
+  function switchLanguage() {
+    language = otherLanguage(language);
+    bank = banks[language];
+    daily = dailyDescriptor(language);
+    todayAnswer = dailyAnswer(language, bank.answers);
+    game.switchLanguage({
+      answer: todayAnswer,
+      dictionary: bank.allWords,
+      language,
+    });
+    shareCopied = false;
+    view = 'game';
+  }
+
+  function applyAction(action: Action) {
+    switch (action.type) {
+      case 'quit':
+        shutdown(0);
+        return;
+      case 'restart':
+        game.reset(todayAnswer);
+        shareCopied = false;
+        draw();
+        return;
+      case 'share':
+        process.stdout.write(osc52CopySequence(buildShareText(game.state, daily.number, stats.currentStreak)));
+        shareCopied = true;
+        draw();
+        return;
+      case 'openHelp':
+        view = 'help';
+        draw();
+        return;
+      case 'openProgress':
+        view = 'progress';
+        draw();
+        return;
+      case 'openTips':
+        view = 'tips';
+        draw();
+        return;
+      case 'switchLanguage':
+        switchLanguage();
+        draw();
+        return;
+      case 'backToGame':
+        view = 'game';
+        draw();
+        return;
+      case 'dismissIntro':
+        completeIntro();
+        view = 'game';
+        draw();
+        return;
+      case 'submit':
+        game.submitGuess();
+        shareCopied = false;
+        recordIfFinished();
+        draw();
+        return;
+      case 'backspace':
+        game.backspace();
+        draw();
+        return;
+      case 'moveCursor':
+        game.moveCursor(action.offset);
+        draw();
+        return;
+      case 'setCursor':
+        game.setCursorPosition(action.position === 'end' ? game.state.currentGuess.length : action.position);
+        draw();
+        return;
+      case 'type':
+        game.addLetter(action.char);
+        draw();
+        return;
+      case 'noop':
+      default:
+        return;
+    }
+  }
 
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
@@ -160,42 +239,24 @@ export async function run() {
   });
 
   process.stdin.on('keypress', (str: string, key: Key) => {
-    if (isQuitCommand(key, game.state.status)) {
-      shutdown(0);
-      return;
-    }
-
-    if (isRestartCommand(key, game.state.status)) {
-      game.reset(todayAnswer);
-      draw(game);
-      return;
-    }
-
-    if (key.name === 'return') {
-      game.submitGuess();
-      draw(game);
-      return;
-    }
-
-    if (key.name === 'backspace' || key.name === 'delete') {
-      game.backspace();
-      draw(game);
-      return;
-    }
-
-    if (str && !key.ctrl) {
-      game.addLetter(str);
-      draw(game);
-    }
+    const action = resolveKey({ view, status: game.state.status, introPending }, str, key);
+    applyAction(action);
   });
 
-  process.stdout.on('resize', () => draw(game));
-  draw(game);
+  process.stdout.on('resize', () => draw());
+  draw();
 }
 
 if (require.main === module) {
-  run().catch((error) => {
-    process.stderr.write(`${String(error)}\n`);
-    process.exit(1);
-  });
+  if (process.argv.includes('--mcp')) {
+    import('./mcp').then((mcp) => mcp.main()).catch((error) => {
+      process.stderr.write(`${String(error)}\n`);
+      process.exit(1);
+    });
+  } else {
+    run().catch((error) => {
+      process.stderr.write(`${String(error)}\n`);
+      process.exit(1);
+    });
+  }
 }

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, evaluateGuess, normalizeWord, TILE } from '../src/game';
 import { messages } from '../src/i18n';
-import { dailyAnswer, loadWordBank } from '../src/words';
+import { loadWordBank } from '../src/dictionary';
+import { dailyAnswer } from '../src/words';
 
 test('evaluateGuess marks repeated letters correctly', () => {
   const result = evaluateGuess('eerie', 'sweep');
@@ -57,6 +58,25 @@ test('invalid word is rejected', () => {
   assert.equal(game.state.message, messages.pt.notInDictionary);
 });
 
+test('current guess supports cursor navigation and replacement', () => {
+  const game = createGame({ answer: 'termo', dictionary: ['termo', 'texto'], language: 'pt' });
+  for (const ch of 'termo') game.addLetter(ch);
+
+  assert.equal(game.state.currentGuess, 'termo');
+  assert.equal(game.state.cursorPosition, 5);
+
+  game.moveCursor(-3);
+  assert.equal(game.state.cursorPosition, 2);
+  game.addLetter('x');
+  assert.equal(game.state.currentGuess, 'texmo');
+  assert.equal(game.state.cursorPosition, 3);
+
+  game.setCursorPosition(5);
+  game.backspace();
+  assert.equal(game.state.currentGuess, 'texm');
+  assert.equal(game.state.cursorPosition, 4);
+});
+
 test('accents are normalized for guesses and restored for display', () => {
   const game = createGame({ answer: 'sábio', dictionary: ['sábio', 'termo'], language: 'pt' });
   for (const ch of 'sabio') game.addLetter(ch);
@@ -75,22 +95,43 @@ test('accents are normalized for guesses and restored for display', () => {
 });
 
 test('word bank contains a broad local dictionary', () => {
-  const bank = loadWordBank();
-  assert.ok(bank.words.length > 10000);
-  assert.ok(bank.words.includes('termo'));
-  assert.equal(bank.dictionary.sabio, 'sábio');
+  const bank = loadWordBank('pt');
+  const allKeys = Object.keys(bank.allWords);
+  assert.ok(allKeys.length > 10000);
+  assert.ok(allKeys.includes('termo'));
+  assert.equal(bank.allWords.sabio, 'sábio');
 
-  const game = createGame({ answer: 'termo', dictionary: bank.dictionary, language: 'pt' });
+  const game = createGame({ answer: 'termo', dictionary: bank.allWords, language: 'pt' });
   for (const ch of 'termo') game.addLetter(ch);
   assert.equal(game.submitGuess(), true);
   assert.equal(game.state.status, 'won');
 });
 
+test('loadWordBank loads English dictionary', () => {
+  const bank = loadWordBank('en');
+  const allKeys = Object.keys(bank.allWords);
+  assert.equal(bank.language, 'en');
+  assert.ok(allKeys.length > 10000);
+  assert.ok(allKeys.includes('hello') || allKeys.includes('aahed'));
+  assert.ok(bank.answers.length > 1000);
+  assert.equal(bank.allWords[bank.answers[0].key], bank.answers[0].text);
+});
+
 test('daily answer is stable for a date', () => {
-  const bank = loadWordBank();
+  const bank = loadWordBank('pt');
   const date = new Date('2026-05-20T12:00:00-03:00');
 
-  assert.deepEqual(dailyAnswer(bank.answers, date), dailyAnswer(bank.answers, date));
+  assert.deepEqual(dailyAnswer('pt', bank.answers, date), dailyAnswer('pt', bank.answers, date));
+});
+
+test('daily answer uses Wordle epoch for English and Termo epoch for Portuguese', () => {
+  const enAnswers = [{ key: 'apple', text: 'apple' }, { key: 'berry', text: 'berry' }, { key: 'crane', text: 'crane' }];
+  const ptAnswers = [{ key: 'termo', text: 'termo' }, { key: 'sabio', text: 'sábio' }, { key: 'pedra', text: 'pedra' }];
+  const date = new Date('2026-05-20T12:00:00-03:00');
+
+  assert.deepEqual(dailyAnswer('en', enAnswers, date), dailyAnswer('en', enAnswers, date));
+  assert.deepEqual(dailyAnswer('pt', ptAnswers, date), dailyAnswer('pt', ptAnswers, date));
+  assert.notDeepEqual(dailyAnswer('en', enAnswers, date), dailyAnswer('pt', ptAnswers, date));
 });
 
 test('game can switch language and restart with a new answer', () => {

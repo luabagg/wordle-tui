@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TILE = exports.MAX_GUESSES = exports.WORD_LENGTH = void 0;
+exports.normalizeWord = normalizeWord;
 exports.evaluateGuess = evaluateGuess;
 exports.createGame = createGame;
+const i18n_1 = require("./i18n");
 exports.WORD_LENGTH = 5;
 exports.MAX_GUESSES = 6;
 exports.TILE = {
@@ -11,15 +13,23 @@ exports.TILE = {
     PRESENT: 'present',
     CORRECT: 'correct',
 };
+function normalizeWord(word) {
+    return word
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
 function evaluateGuess(guess, answer) {
-    if (guess.length !== exports.WORD_LENGTH || answer.length !== exports.WORD_LENGTH) {
+    const guessKey = normalizeWord(guess);
+    const answerKey = normalizeWord(answer);
+    if (guessKey.length !== exports.WORD_LENGTH || answerKey.length !== exports.WORD_LENGTH) {
         throw new Error('guess and answer must be 5 letters');
     }
     const result = new Array(exports.WORD_LENGTH).fill(exports.TILE.ABSENT);
-    const answerChars = answer.split('');
+    const answerChars = answerKey.split('');
     const remaining = new Map();
     for (let i = 0; i < exports.WORD_LENGTH; i += 1) {
-        if (guess[i] === answerChars[i]) {
+        if (guessKey[i] === answerChars[i]) {
             result[i] = exports.TILE.CORRECT;
             answerChars[i] = null;
         }
@@ -32,24 +42,78 @@ function evaluateGuess(guess, answer) {
     for (let i = 0; i < exports.WORD_LENGTH; i += 1) {
         if (result[i] === exports.TILE.CORRECT)
             continue;
-        const count = remaining.get(guess[i]) || 0;
+        const count = remaining.get(guessKey[i]) || 0;
         if (count > 0) {
             result[i] = exports.TILE.PRESENT;
-            remaining.set(guess[i], count - 1);
+            remaining.set(guessKey[i], count - 1);
         }
     }
     return result;
 }
-function createGame(answer, validWords) {
-    const dictionary = new Set(validWords.map((w) => w.toLowerCase()));
+function createWordLookup(words) {
+    const dictionary = new Map();
+    if (Array.isArray(words)) {
+        for (const word of words) {
+            const key = normalizeWord(word);
+            if (!dictionary.has(key))
+                dictionary.set(key, word.toLowerCase());
+        }
+    }
+    else if (words instanceof Set) {
+        for (const word of words) {
+            const key = normalizeWord(word);
+            if (!dictionary.has(key))
+                dictionary.set(key, word.toLowerCase());
+        }
+    }
+    else {
+        for (const [key, value] of Object.entries(words)) {
+            dictionary.set(normalizeWord(key), value === true ? key.toLowerCase() : String(value).toLowerCase());
+        }
+    }
+    return {
+        has: (word) => dictionary.has(normalizeWord(word)),
+        display: (word) => dictionary.get(normalizeWord(word)) || normalizeWord(word),
+        size: dictionary.size,
+    };
+}
+function toAnswerEntry(answer) {
+    if (typeof answer === 'string') {
+        return { key: normalizeWord(answer), text: answer.toLowerCase() };
+    }
+    return {
+        key: normalizeWord(answer.key),
+        text: answer.text.toLowerCase(),
+    };
+}
+function assertLanguage(lang) {
+    if (!(lang === 'en' || lang === 'pt')) {
+        throw new Error(`Unsupported language: ${lang}`);
+    }
+}
+function createGame(config) {
+    assertLanguage(config.language);
+    return buildGame(config);
+}
+function buildGame(config) {
+    const { answer, dictionary, language } = config;
+    let strings = i18n_1.messages[language];
+    let words = createWordLookup(dictionary);
+    const answerEntry = toAnswerEntry(answer);
+    if (!words.has(answerEntry.key)) {
+        throw new Error(`answer ${answerEntry.key} is not in dictionary`);
+    }
     const state = {
-        answer: answer.toLowerCase(),
+        answer: answerEntry.text,
+        answerKey: answerEntry.key,
         guesses: [],
         evaluations: [],
         currentGuess: '',
+        cursorPosition: 0,
         status: 'playing',
-        message: 'Type a 5-letter word. Enter to submit.',
+        message: strings.dailyLoaded(words.size),
         keyState: new Map(),
+        language,
     };
     function updateKeyboard(guess, evals) {
         const rank = { [exports.TILE.EMPTY]: 0, [exports.TILE.ABSENT]: 1, [exports.TILE.PRESENT]: 2, [exports.TILE.CORRECT]: 3 };
@@ -61,60 +125,117 @@ function createGame(answer, validWords) {
                 state.keyState.set(ch, score);
         }
     }
+    function clampCursor(position) {
+        return Math.max(0, Math.min(position, state.currentGuess.length));
+    }
     return {
         state,
         addLetter(ch) {
             if (state.status !== 'playing')
                 return;
-            if (!/^[a-z]$/.test(ch))
+            const letter = normalizeWord(ch);
+            if (!/^[a-z]$/.test(letter))
                 return;
-            if (state.currentGuess.length >= exports.WORD_LENGTH)
+            if (state.currentGuess.length >= exports.WORD_LENGTH && state.cursorPosition >= exports.WORD_LENGTH)
                 return;
-            state.currentGuess += ch;
+            const chars = Array.from(state.currentGuess);
+            if (state.cursorPosition < chars.length) {
+                chars[state.cursorPosition] = letter;
+            }
+            else {
+                chars.push(letter);
+            }
+            state.currentGuess = chars.join('');
+            state.cursorPosition = Math.min(state.cursorPosition + 1, exports.WORD_LENGTH);
             state.message = '';
         },
         backspace() {
             if (state.status !== 'playing')
                 return;
-            state.currentGuess = state.currentGuess.slice(0, -1);
+            if (state.cursorPosition === 0)
+                return;
+            const chars = Array.from(state.currentGuess);
+            chars.splice(state.cursorPosition - 1, 1);
+            state.currentGuess = chars.join('');
+            state.cursorPosition = clampCursor(state.cursorPosition - 1);
+        },
+        moveCursor(offset) {
+            if (state.status !== 'playing')
+                return;
+            state.cursorPosition = clampCursor(state.cursorPosition + offset);
+        },
+        setCursorPosition(position) {
+            if (state.status !== 'playing')
+                return;
+            state.cursorPosition = clampCursor(position);
         },
         submitGuess() {
             if (state.status !== 'playing')
                 return false;
             if (state.currentGuess.length !== exports.WORD_LENGTH) {
-                state.message = 'Not enough letters.';
+                state.message = strings.wrongLength;
                 return false;
             }
-            if (!dictionary.has(state.currentGuess)) {
-                state.message = 'Word not in list.';
+            if (!words.has(state.currentGuess)) {
+                state.message = strings.notInDictionary;
                 return false;
             }
-            const evals = evaluateGuess(state.currentGuess, state.answer);
-            state.guesses.push(state.currentGuess);
+            const guessKey = normalizeWord(state.currentGuess);
+            const guessText = words.display(guessKey);
+            const evals = evaluateGuess(guessKey, state.answerKey);
+            state.guesses.push(guessText);
             state.evaluations.push(evals);
-            updateKeyboard(state.currentGuess, evals);
-            if (state.currentGuess === state.answer) {
+            updateKeyboard(guessKey, evals);
+            if (guessKey === state.answerKey) {
                 state.status = 'won';
-                state.message = `You solved it in ${state.guesses.length}/6! Press r to play again or q to quit.`;
+                state.message = strings.winMessage(state.guesses.length);
             }
             else if (state.guesses.length >= exports.MAX_GUESSES) {
                 state.status = 'lost';
-                state.message = `Out of guesses. The word was ${state.answer.toUpperCase()}. Press r to play again or q to quit.`;
+                state.message = strings.loseMessage(state.answer);
             }
             else {
-                state.message = `Guess ${state.guesses.length}/6 recorded.`;
+                state.message = strings.guessRegistered(state.guesses.length);
             }
             state.currentGuess = '';
+            state.cursorPosition = 0;
             return true;
         },
         reset(nextAnswer) {
-            state.answer = nextAnswer.toLowerCase();
+            const nextAnswerEntry = toAnswerEntry(nextAnswer);
+            if (!words.has(nextAnswerEntry.key)) {
+                throw new Error(`answer ${nextAnswerEntry.key} is not in dictionary`);
+            }
+            state.answer = nextAnswerEntry.text;
+            state.answerKey = nextAnswerEntry.key;
             state.guesses = [];
             state.evaluations = [];
             state.currentGuess = '';
+            state.cursorPosition = 0;
             state.status = 'playing';
-            state.message = 'New game. Type a 5-letter word.';
+            state.message = strings.gameReset;
             state.keyState.clear();
+        },
+        switchLanguage(config) {
+            const { answer, dictionary, language } = config;
+            assertLanguage(language);
+            const nextWords = createWordLookup(dictionary);
+            const nextAnswer = toAnswerEntry(answer);
+            if (!nextWords.has(nextAnswer.key)) {
+                throw new Error(`answer ${nextAnswer.key} is not in dictionary`);
+            }
+            words = nextWords;
+            strings = i18n_1.messages[language];
+            state.answer = nextAnswer.text;
+            state.answerKey = nextAnswer.key;
+            state.guesses = [];
+            state.evaluations = [];
+            state.currentGuess = '';
+            state.cursorPosition = 0;
+            state.status = 'playing';
+            state.message = strings.gameReset;
+            state.keyState.clear();
+            state.language = language;
         },
     };
 }
