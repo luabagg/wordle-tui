@@ -1,5 +1,5 @@
-import { Language } from './i18n';
-import { WordEntry } from './game';
+import type { Language } from './i18n';
+import type { WordEntry } from './game';
 import ptAllWords from './dict/pt/all.json';
 import ptAnswers from './dict/pt/answers.json';
 import enAllList from './dict/en/all.json';

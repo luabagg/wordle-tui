@@ -1,4 +1,5 @@
-import { Language, messages } from './i18n';
+import { messages } from './i18n';
+import type { Language } from './i18n';
 
 export const WORD_LENGTH = 5;
 export const MAX_GUESSES = 6;

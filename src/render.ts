@@ -1,6 +1,8 @@
-import { createGame, TILE, WORD_LENGTH, MAX_GUESSES, TileState, GameStatus } from './game';
+import { createGame, TILE, WORD_LENGTH, MAX_GUESSES } from './game';
+import type { GameStatus, TileState } from './game';
 import { messages } from './i18n';
-import { GameStats, buildShareText, winRate, distributionRows } from './stats';
+import { buildShareText, winRate, distributionRows } from './stats';
+import type { GameStats } from './stats';
 
 export const colors = {
   reset: '\x1b[0m',

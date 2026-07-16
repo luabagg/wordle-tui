@@ -1,5 +1,5 @@
-import { Language } from './i18n';
-import { WordEntry } from './game';
+import type { Language } from './i18n';
+import type { WordEntry } from './game';
 
 export interface DailyCalendar {
   timeZone: string;

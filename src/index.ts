@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import readline, { Key } from 'node:readline';
+import readline from 'node:readline';
+import type { Key } from 'node:readline';
 import { createGame } from './game';
-import { defaultLanguage, loadWordBank, WordBank } from './dictionary';
+import { defaultLanguage, loadWordBank } from './dictionary';
+import type { WordBank } from './dictionary';
 import {
   dailyAnswer,
   dailyDescriptor,
@@ -22,12 +24,13 @@ import {
   renderGameLines,
   renderHelpLines,
   renderProgressLines,
-  RenderGameOptions,
 } from './render';
+import type { RenderGameOptions } from './render';
 import { renderTips } from './tips';
 import { filterCandidates, normalizeAll, rankGuesses, bestWinProbabilityGuess } from './solver';
-import { Action, View, resolveKey } from './input';
-import { Language } from './i18n';
+import { resolveKey } from './input';
+import type { Action, View } from './input';
+import type { Language } from './i18n';
 
 function parseLanguage(argv: string[]): Language {
   const flagIndex = argv.findIndex((arg) => arg === '--lang' || arg === '-l');

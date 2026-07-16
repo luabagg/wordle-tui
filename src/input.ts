@@ -1,5 +1,5 @@
-import { Key } from 'node:readline';
-import { GameStatus } from './game';
+import type { Key } from 'node:readline';
+import type { GameStatus } from './game';
 
 export type View = 'game' | 'help' | 'progress' | 'tips';
 

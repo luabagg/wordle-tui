@@ -4,11 +4,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  TextContent,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createGame, GameState, MAX_GUESSES, TILE } from './game';
-import { loadWordBank, WordBank } from './dictionary';
-import { Language, messages } from './i18n';
+import type { TextContent } from '@modelcontextprotocol/sdk/types.js';
+import { createGame, MAX_GUESSES, TILE } from './game';
+import type { GameState } from './game';
+import { loadWordBank } from './dictionary';
+import type { WordBank } from './dictionary';
+import { messages } from './i18n';
+import type { Language } from './i18n';
 import { dailyAnswer, dailyDescriptor } from './words';
 import { normalizeWord } from './game';
 import { filterCandidates, rankGuesses, bestWinProbabilityGuess } from './solver';

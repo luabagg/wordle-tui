@@ -1,4 +1,5 @@
-import { evaluateGuess, normalizeWord, TileState, TILE, WORD_LENGTH } from './game';
+import { evaluateGuess, normalizeWord, TILE, WORD_LENGTH } from './game';
+import type { TileState } from './game';
 
 export interface GuessEvaluation {
   guess: string;

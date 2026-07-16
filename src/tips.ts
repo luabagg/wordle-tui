@@ -1,5 +1,6 @@
-import { Language, messages } from './i18n';
-import { GuessScore } from './solver';
+import { messages } from './i18n';
+import type { Language } from './i18n';
+import type { GuessScore } from './solver';
 
 const ansiPattern = /\x1b\[[0-9;?]*[A-Za-z]/g;
 

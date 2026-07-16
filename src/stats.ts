@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { GameState, MAX_GUESSES, TILE, TileState } from './game';
-import { DailyDescriptor } from './words';
+import { MAX_GUESSES, TILE } from './game';
+import type { GameState, TileState } from './game';
+import type { DailyDescriptor } from './words';
 
 export type { DailyDescriptor };
 
