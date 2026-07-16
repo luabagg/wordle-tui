@@ -112,6 +112,20 @@ describe('WordleApp controller', () => {
     expect(snapshot.view).toBe('game');
   });
 
+  test('derives tips from submitted guess history without mutating the game', () => {
+    const { app } = createTestApp();
+    typeWord(app, 'slate');
+    app.dispatch({ type: 'submit' });
+    const guessesBefore = [...app.snapshot().game.guesses];
+
+    app.dispatch({ type: 'openTips' });
+    const tips = app.snapshot().tips;
+
+    expect(tips).not.toBeNull();
+    expect(tips?.ranked.length).toBeGreaterThan(0);
+    expect(app.snapshot().game.guesses).toEqual(guessesBefore);
+  });
+
   test('records and saves a completed daily result exactly once', () => {
     const { app, saves } = createTestApp();
     typeWord(app, 'crane');

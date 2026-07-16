@@ -170,11 +170,26 @@ test('rendered game title uses localized strings only', () => {
 });
 
 test('OpenTUI key events map to the existing action contract', () => {
-  const context = { view: 'game' as const, status: 'playing' as const, introPending: false };
+  const playing = { view: 'game' as const, status: 'playing' as const, introPending: false };
 
-  assert.deepEqual(resolveOpenTuiKey(context, { name: 'a', sequence: 'a' }), { type: 'type', char: 'a' });
-  assert.deepEqual(resolveOpenTuiKey(context, { name: 'enter', sequence: '\r' }), { type: 'submit' });
-  assert.deepEqual(resolveOpenTuiKey(context, { name: 'left', sequence: '\u001b[D' }), { type: 'moveCursor', offset: -1 });
-  assert.deepEqual(resolveOpenTuiKey(context, { name: 'h', ctrl: true, sequence: '\b' }), { type: 'openHelp' });
-  assert.deepEqual(resolveOpenTuiKey(context, { name: 'c', ctrl: true, sequence: '\u0003' }), { type: 'quit' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'a', sequence: 'a' }), { type: 'type', char: 'a' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'return', sequence: '\r' }), { type: 'submit' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'left', sequence: '\u001b[D' }), { type: 'moveCursor', offset: -1 });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'right', sequence: '\u001b[C' }), { type: 'moveCursor', offset: 1 });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'home', sequence: '\u001b[H' }), { type: 'setCursor', position: 0 });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'end', sequence: '\u001b[F' }), { type: 'setCursor', position: 'end' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'backspace', sequence: '\b' }), { type: 'backspace' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'delete', sequence: '\u001b[3~' }), { type: 'backspace' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'tab', sequence: '\t' }), { type: 'openTips' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'h', ctrl: true, sequence: '\b' }), { type: 'openHelp' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'p', ctrl: true, sequence: '\u0010' }), { type: 'openProgress' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'l', ctrl: true, sequence: '\f' }), { type: 'switchLanguage' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'r', ctrl: true, sequence: '\u0012' }), { type: 'restart' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'escape', sequence: '\u001b' }), { type: 'quit' });
+  assert.deepEqual(resolveOpenTuiKey(playing, { name: 'c', ctrl: true, sequence: '\u0003' }), { type: 'quit' });
+
+  const finished = { ...playing, status: 'won' as const };
+  assert.deepEqual(resolveOpenTuiKey(finished, { name: 's', sequence: 's' }), { type: 'share' });
+  assert.deepEqual(resolveOpenTuiKey(finished, { name: 'r', sequence: 'r' }), { type: 'restart' });
+  assert.deepEqual(resolveOpenTuiKey(finished, { name: 'q', sequence: 'q' }), { type: 'quit' });
 });
