@@ -12,7 +12,7 @@ A bilingual daily word game for the terminal, built with Bun, TypeScript, and [O
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3 or newer
-- An interactive terminal with color support
+- An interactive terminal (RGB, ANSI-256/basic, and colorless modes are supported)
 
 ## Install
 
@@ -40,20 +40,31 @@ The short form is also supported:
 bun run start -- -l en
 ```
 
+OpenTUI's `unicode` terminal capability selects a width-measurement algorithm; it does not detect glyph support. If a terminal cannot render the default Unicode/emoji symbols reliably, request the explicit ASCII presentation:
+
+```bash
+WORDLE_ASCII=1 bun run start
+```
+
 ## Controls
 
 ### During play
 
-- Letters: enter or replace letters in the current guess
-- `Left` / `Right`: move within the typed portion of the guess
-- `Home` / `End`: jump to the start or end
+- Letters: fill or replace the selected slot
+- Paste: fill exactly one normalized five-letter word; never auto-submits
+- `Left` / `Right`: move across all five slots
+- `Home` / `End`: jump to the start or first trailing empty slot
 - `Enter`: submit
-- `Backspace` / `Delete`: remove the previous letter
+- `Backspace`: clear the previous slot and move left
+- `Delete`: clear the current slot without moving
 - `Tab`: tips
 - `Ctrl+H`: help
 - `Ctrl+P`: progress
-- `Ctrl+L`: switch language and restart the daily puzzle
-- `Ctrl+R`: restart
+- `Ctrl+L`: switch language (each language keeps its own in-progress board)
+- `Ctrl+R`: restart (asks for confirmation when the daily board has progress)
+- `Ctrl+D`: toggle hard mode (official green/yellow reuse; preference is saved locally)
+- `Ctrl+T`: enter or leave five-letter practice mode (unlimited attempts; no daily stats)
+- `Ctrl+Z`: undo the latest submitted row when allowed
 - `Esc`, `Ctrl+C`, `Ctrl+Q`: quit
 
 ### After a round
@@ -61,17 +72,36 @@ bun run start -- -l en
 - `S`: copy and reveal the share result
 - `R`: restart
 - `Q`: quit
+- `Ctrl+Z`: undo the latest row in practice, or in daily only before the result is recorded
+- `Ctrl+T`: return to the preserved daily board from practice
 
 In help, progress, and tips, `Esc` returns to the game. The matching shortcut also closes each view.
 
 ## Daily game and statistics
 
-Each language has its own daily calendar, answer list, puzzle number, and result history. Completed daily results, streaks, win distribution, and intro state are saved locally:
+Each language has its own daily calendar, answer list, puzzle number, and result history. In-progress boards, completed daily results, streaks, win distribution, hard-mode preference, and intro state are saved locally:
 
 - `$XDG_STATE_HOME/wordle-tui/stats.json`, when `XDG_STATE_HOME` is set
 - otherwise `~/.local/state/wordle-tui/stats.json`
 
-The current in-progress board is not yet restored after restarting the process; see `docs/core-implementation-gap-audit.md` for the documented backlog.
+Relaunching restores the active board for the current language and day. Switching language preserves the other language session. If midnight arrives while the process is open, the unfinished board is archived and the new daily puzzle starts with a visible notice.
+
+### Hard mode
+
+Hard mode follows official Wordle constraints:
+
+- every previously correct (green) letter must stay in that position
+- every previously present/correct letter must appear at least as many times as revealed
+
+Illegal guesses are rejected without changing the board. The hard-mode preference is stored in local settings and on the active session.
+
+### Practice mode
+
+`Ctrl+T` starts an unlimited-attempt five-letter practice game drawn from the current language answer bank. Practice never records daily results, streaks, or win distribution. Entering practice preserves the active daily board; pressing `Ctrl+T` again restores it.
+
+### Undo
+
+`Ctrl+Z` removes only the latest submitted row and rebuilds keyboard coloring from remaining history. Daily undo is blocked after a completed result has been recorded. Practice may undo its final row because practice has no durable stats.
 
 ## Tips
 
@@ -114,6 +144,8 @@ bun run check
 ```
 
 The production bundle is generated at `dist/wordle-tui.js`. Runtime packages remain external so OpenTUI can resolve the correct native package for the current platform.
+
+CI runs the full check on Linux, macOS, and Windows, matching OpenTUI's supported native OS families. The real PTY launch/quit smoke is guarded to Linux runners with util-linux `script`; other runners execute the capability-mocked OpenTUI suite. OpenTUI also publishes ARM64 native packages, but Linux/Windows ARM64 remain guarded until standard hosted runners are available.
 
 ## Dictionaries
 

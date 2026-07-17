@@ -1,19 +1,28 @@
+import { normalizeWord } from './game';
 import type { GameStatus } from './game';
 
-export type View = 'game' | 'help' | 'progress' | 'tips';
+export type View = 'game' | 'help' | 'progress' | 'tips' | 'confirmRestart';
 
 export type Action =
   | { type: 'quit' }
   | { type: 'restart' }
+  | { type: 'confirmRestart' }
+  | { type: 'cancelRestart' }
+  | { type: 'dismissNotice' }
   | { type: 'share' }
   | { type: 'openHelp' }
   | { type: 'openProgress' }
   | { type: 'openTips' }
   | { type: 'switchLanguage' }
+  | { type: 'toggleHardMode' }
+  | { type: 'togglePractice' }
+  | { type: 'undo' }
   | { type: 'backToGame' }
   | { type: 'dismissIntro' }
   | { type: 'submit' }
   | { type: 'backspace' }
+  | { type: 'delete' }
+  | { type: 'paste'; text: string }
   | { type: 'moveCursor'; offset: number }
   | { type: 'setCursor'; position: number | 'end' }
   | { type: 'type'; char: string }
@@ -23,6 +32,8 @@ export interface ResolveContext {
   view: View;
   status: GameStatus;
   introPending: boolean;
+  /** When true, Escape dismisses the rollover/status notice instead of quitting. */
+  noticeVisible?: boolean;
 }
 
 export interface KeyLike {
@@ -67,10 +78,33 @@ export function isTipsCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
   return !key.ctrl && key.name === 'tab';
 }
 
+export function isHardModeToggleCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
+  return Boolean(key.ctrl && key.name === 'd');
+}
+
+export function isPracticeToggleCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
+  return Boolean(key.ctrl && key.name === 't');
+}
+
+export function isUndoCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
+  return Boolean(key.ctrl && key.name === 'z');
+}
+
 export function resolveKey(context: ResolveContext, str: string, key: KeyLike): Action {
   const { view, status, introPending } = context;
 
   if (key.ctrl && (key.name === 'c' || key.name === 'q')) return { type: 'quit' };
+
+  if (view === 'confirmRestart') {
+    if (key.name === 'escape') return { type: 'cancelRestart' };
+    if (key.name === 'return' || key.name === 'enter') return { type: 'confirmRestart' };
+    if (str && !key.ctrl && !key.meta) {
+      const ch = str.toLowerCase();
+      if (ch === 'y') return { type: 'confirmRestart' };
+      if (ch === 'n') return { type: 'cancelRestart' };
+    }
+    return { type: 'noop' };
+  }
 
   if (view === 'help') {
     if (introPending || key.name === 'escape' || (key.ctrl && key.name === 'h')) {
@@ -92,14 +126,22 @@ export function resolveKey(context: ResolveContext, str: string, key: KeyLike): 
   if (key.ctrl && key.name === 'h') return { type: 'openHelp' };
   if (key.ctrl && key.name === 'p') return { type: 'openProgress' };
   if (isLanguageSwitchCommand(key)) return { type: 'switchLanguage' };
+  if (isHardModeToggleCommand(key)) return { type: 'toggleHardMode' };
+  if (isPracticeToggleCommand(key)) return { type: 'togglePractice' };
+  if (isUndoCommand(key)) return { type: 'undo' };
   if (isTipsCommand(key)) return { type: 'openTips' };
+  // Prefer dismiss-notice over quit when Esc is pressed while a notice is shown.
+  if (context.noticeVisible && key.name === 'escape' && !key.ctrl) {
+    return { type: 'dismissNotice' };
+  }
   if (isQuitCommand(key, status)) return { type: 'quit' };
   if (introPending) return { type: 'dismissIntro' };
   if (isRestartCommand(key, status)) return { type: 'restart' };
   if (isShareCommand(key, status)) return { type: 'share' };
 
   if (key.name === 'return' || key.name === 'enter') return { type: 'submit' };
-  if (key.name === 'backspace' || key.name === 'delete') return { type: 'backspace' };
+  if (key.name === 'backspace') return { type: 'backspace' };
+  if (key.name === 'delete') return { type: 'delete' };
   if (key.name === 'left') return { type: 'moveCursor', offset: -1 };
   if (key.name === 'right') return { type: 'moveCursor', offset: 1 };
   if (key.name === 'home') return { type: 'setCursor', position: 0 };
@@ -114,4 +156,10 @@ export function resolveOpenTuiKey(context: ResolveContext, key: KeyLike): Action
   const sequence = key.sequence || '';
   const char = sequence.length === 1 ? sequence : '';
   return resolveKey(context, char, { ...key, name });
+}
+
+/** Accept exactly one five-letter word after accent normalization. */
+export function isValidPasteWord(text: string): boolean {
+  if (!text || /\s/.test(text)) return false;
+  return /^[a-z]{5}$/.test(normalizeWord(text));
 }

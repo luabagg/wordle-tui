@@ -1,13 +1,21 @@
 import {
   CliRenderEvents,
   createCliRenderer,
+  decodePasteBytes,
 } from '@opentui/core';
-import type { CliRenderer, CliRendererConfig, KeyEvent } from '@opentui/core';
+import type {
+  CliRenderer,
+  CliRendererConfig,
+  KeyEvent,
+  PasteEvent,
+} from '@opentui/core';
 import { createWordleApp, parseLanguage } from './app';
 import type { WordleApp } from './app';
 import { resolveOpenTuiKey } from './input';
 import { createOpenTuiView } from './opentui-view';
 import type { OpenTuiView } from './opentui-view';
+
+export const COUNTDOWN_TICK_MS = 60_000;
 
 export interface CliRuntime {
   readonly renderer: CliRenderer;
@@ -16,11 +24,18 @@ export interface CliRuntime {
   shutdown(): void;
 }
 
+export interface CliTimerHandles {
+  setInterval: (handler: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+}
+
 export interface CliDependencies {
   isTty: () => boolean;
   createRenderer: (config: CliRendererConfig) => Promise<CliRenderer>;
   createApp: typeof createWordleApp;
   createView: typeof createOpenTuiView;
+  useAsciiGlyphs: () => boolean;
+  timers?: CliTimerHandles;
 }
 
 const defaultDependencies: CliDependencies = {
@@ -28,6 +43,11 @@ const defaultDependencies: CliDependencies = {
   createRenderer: createCliRenderer,
   createApp: createWordleApp,
   createView: createOpenTuiView,
+  useAsciiGlyphs: () => process.env.WORDLE_ASCII === '1',
+  timers: {
+    setInterval: (handler, ms) => setInterval(handler, ms),
+    clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+  },
 };
 
 export async function run(
@@ -57,12 +77,22 @@ export async function run(
         copyText: (text) => activeRenderer.copyToClipboardOSC52(text),
       },
     });
-    const view = dependencies.createView(activeRenderer);
+    const view = dependencies.createView(activeRenderer, {
+      glyphs: dependencies.useAsciiGlyphs() ? 'ascii' : 'unicode',
+    });
     let stopped = false;
+    let tickHandle: unknown = null;
+    const timers = dependencies.timers ?? defaultDependencies.timers!;
 
     const render = (): void => {
       if (stopped || activeRenderer.isDestroyed) return;
       view.render(app.snapshot());
+    };
+
+    const onTick = (): void => {
+      if (stopped || activeRenderer.isDestroyed) return;
+      app.onTick();
+      render();
     };
 
     const onKeypress = (key: KeyEvent): void => {
@@ -71,6 +101,7 @@ export async function run(
         view: snapshot.view,
         status: snapshot.game.status,
         introPending: snapshot.introPending,
+        noticeVisible: Boolean(snapshot.notice),
       }, key);
       const result = app.dispatch(action);
       if (result.shouldQuit) {
@@ -78,14 +109,28 @@ export async function run(
         return;
       }
       render();
+      if (action.type === 'openTips') {
+        // Ranking is cooperative for large cold pools; repaint when it completes.
+        void app.flushTips().then(render);
+      }
+    };
+
+    const onPaste = (event: PasteEvent): void => {
+      app.dispatch({ type: 'paste', text: decodePasteBytes(event.bytes) });
+      render();
     };
 
     const onResize = (): void => render();
 
     const detach = (): void => {
       activeRenderer.keyInput.off('keypress', onKeypress);
+      activeRenderer.keyInput.off('paste', onPaste);
       activeRenderer.off(CliRenderEvents.RESIZE, onResize);
       activeRenderer.off(CliRenderEvents.DESTROY, onDestroyed);
+      if (tickHandle != null) {
+        timers.clearInterval(tickHandle);
+        tickHandle = null;
+      }
     };
 
     const onDestroyed = (): void => {
@@ -103,8 +148,10 @@ export async function run(
     };
 
     activeRenderer.keyInput.on('keypress', onKeypress);
+    activeRenderer.keyInput.on('paste', onPaste);
     activeRenderer.on(CliRenderEvents.RESIZE, onResize);
     activeRenderer.on(CliRenderEvents.DESTROY, onDestroyed);
+    tickHandle = timers.setInterval(onTick, COUNTDOWN_TICK_MS);
     render();
 
     return { renderer: activeRenderer, app, view, shutdown };

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createTestRenderer } from '@opentui/core/testing';
+import { TextAttributes } from '@opentui/core';
+import { createTestRenderer, setRendererCapabilities } from '@opentui/core/testing';
 import { createWordleApp } from '../src/app';
 import type { WordBank } from '../src/dictionary';
 import { createOpenTuiView } from '../src/opentui-view';
@@ -42,9 +43,17 @@ function createApp(
   });
 }
 
-async function setup(width = 72, height = 30) {
+// ensure snapshot fields used by the view are present in older fixtures
+
+async function setup(
+  width = 72,
+  height = 30,
+  capabilities?: { rgb?: boolean; ansi256?: boolean; unicode?: 'unicode' | 'wcwidth' },
+  glyphs?: 'unicode' | 'ascii',
+) {
   const testRenderer = await createTestRenderer({ width, height });
-  const view = createOpenTuiView(testRenderer.renderer);
+  if (capabilities) setRendererCapabilities(testRenderer.renderer, capabilities);
+  const view = createOpenTuiView(testRenderer.renderer, { glyphs });
   cleanups.push(() => {
     view.destroy();
     testRenderer.renderer.destroy();
@@ -70,6 +79,17 @@ describe('OpenTUI view', () => {
     expect(frame).toMatch(/Q\s+W\s+E\s+R\s+T\s+Y/);
     expect(frame).toContain('Daily word loaded');
     expect((frame.match(/·/g) || []).length).toBeGreaterThanOrEqual(30);
+  });
+
+  test('renders sparse editable slots independently', async () => {
+    const app = createApp();
+    app.dispatch({ type: 'setCursor', position: 3 });
+    app.dispatch({ type: 'type', char: 'a' });
+    const { view, renderOnce, captureCharFrame } = await setup();
+
+    view.render(app.snapshot());
+    await renderOnce();
+    expect(captureCharFrame()).toMatch(/·\s+·\s+·\s+A\s+·/);
   });
 
   test('renders active, evaluated, and keyboard tile colors through OpenTUI spans', async () => {
@@ -211,6 +231,74 @@ describe('OpenTUI view', () => {
     expect(frame).toContain('🟩🟩🟩🟩🟩');
   });
 
+  test('degrades to distinguishable monochrome rendering with OpenTUI capability mocks', async () => {
+    const app = createApp();
+    typeWord(app, 'trace');
+    app.dispatch({ type: 'submit' });
+    const { view, renderOnce, captureCharFrame, captureSpans } = await setup(72, 30, {
+      rgb: false,
+      ansi256: false,
+      unicode: 'unicode',
+    });
+
+    view.render(app.snapshot());
+    await renderOnce();
+    const frame = captureCharFrame();
+    const spans = captureSpans().lines.flatMap((line) => line.spans);
+
+    expect(view.getPresentationMode()).toEqual({ color: 'none', glyphs: 'unicode' });
+    expect(frame).toMatch(/t\s+R\s+A\s+c\s+E/);
+    expect(spans.find((span) => span.text === 't')?.attributes).toBe(0);
+    expect(spans.find((span) => span.text === 'R')?.attributes).toBe(TextAttributes.BOLD);
+    expect(spans.find((span) => span.text === 'c')?.attributes).toBe(TextAttributes.UNDERLINE);
+    expect(frame).toContain('(bold)');
+    expect(frame).toContain('(underline)');
+  });
+
+  test('does not treat OpenTUI wcwidth WidthMethod as missing Unicode support', async () => {
+    const { view } = await setup(72, 30, {
+      rgb: true,
+      ansi256: true,
+      unicode: 'wcwidth',
+    });
+    expect(view.getPresentationMode()).toEqual({ color: 'rgb', glyphs: 'unicode' });
+  });
+
+  test('uses stable ASCII layout and share glyphs when explicitly requested', async () => {
+    const app = createApp();
+    typeWord(app, 'crane');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'share' });
+
+    const ascii = await setup(72, 30, {
+      rgb: false,
+      ansi256: false,
+      unicode: 'wcwidth',
+    }, 'ascii');
+    ascii.view.render(app.snapshot());
+    await ascii.renderOnce();
+    const asciiFrame = ascii.captureCharFrame();
+
+    expect(ascii.view.getPresentationMode()).toEqual({ color: 'none', glyphs: 'ascii' });
+    expect(asciiFrame).toContain('GGGGG');
+    expect(asciiFrame).not.toContain('🟩');
+    expect(asciiFrame).not.toContain('·');
+
+    const full = await setup(72, 30, { rgb: true, ansi256: true, unicode: 'unicode' });
+    full.view.render(app.snapshot());
+    await full.renderOnce();
+    expect(asciiFrame.split('\n')).toHaveLength(full.captureCharFrame().split('\n').length);
+  });
+
+  test('uses the basic palette when RGB is unavailable but ANSI-256 is present', async () => {
+    const { view } = await setup(72, 30, {
+      rgb: false,
+      ansi256: true,
+      unicode: 'unicode',
+    });
+    expect(view.getPresentationMode()).toEqual({ color: 'basic', glyphs: 'unicode' });
+  });
+
   test('destroys the renderable tree without destroying twice', async () => {
     const { view, renderer } = await setup();
     view.destroy();
@@ -219,4 +307,25 @@ describe('OpenTUI view', () => {
     expect(view.root.isDestroyed).toBe(true);
     expect(renderer.isDestroyed).toBe(false);
   });
+});
+
+test('renders hard-mode indicator and scrolls a practice board past six rows', async () => {
+  const app = createApp();
+  app.dispatch({ type: 'toggleHardMode' });
+  app.dispatch({ type: 'togglePractice' });
+  for (let i = 0; i < 6; i += 1) {
+    typeWord(app, 'slate');
+    app.dispatch({ type: 'submit' });
+  }
+  typeWord(app, 'crane');
+  app.dispatch({ type: 'submit' });
+
+  const { view, renderOnce, captureCharFrame } = await setup(72, 30);
+  view.render(app.snapshot());
+  await renderOnce();
+  const frame = captureCharFrame();
+  expect(frame).toContain('[HARD]');
+  expect(frame).toContain('[PRACTICE]');
+  expect(frame).toContain('7 guesses used');
+  expect(frame).toMatch(/C\s+R\s+A\s+N\s+E/);
 });
