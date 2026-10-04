@@ -1,0 +1,31 @@
+{
+  "name": "wordle-tui",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "wordle-tui": "dist/wordle-tui.js"
+  },
+  "files": [
+    "dist/wordle-tui.js",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "start": "bun ./src/index.ts",
+    "mcp": "bun ./src/index.ts --mcp",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build ./src/index.ts --target=bun --packages external --outfile ./dist/wordle-tui.js",
+    "test": "bun test ./test",
+    "check": "bun run typecheck && bun test ./test && bun run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentui/core": "^0.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
