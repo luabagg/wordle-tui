@@ -9,6 +9,8 @@ A bilingual daily word game for the terminal, built with Bun, TypeScript, and [O
 - Keyboard-first OpenTUI interface
 - Optional MCP server using the same game domain
 
+<img width="578" height="403" alt="image" src="https://github.com/user-attachments/assets/15e32879-f7f4-4aea-a9b6-45dcd3401f6d" />
+
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3 or newer
