@@ -306,6 +306,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
       history: currentTipsHistory(),
       answerKeys: bank.answers.map((entry) => entry.key),
       allWords: bank.allWords,
+      hardMode: game.state.hardMode,
     };
   }
 
@@ -327,7 +328,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
 
   function beginTipsCompute(): void {
     const args = tipsArgs();
-    const cacheKey = tipsHistoryFingerprint(args.language, args.history);
+    const cacheKey = tipsHistoryFingerprint(args.language, args.history, args.hardMode);
     if (tipsCache && tipsCacheKey === cacheKey && tipsCache.status === 'ready') return;
 
     // Filter is cheap; candidate count drives rank cost (pool ≈ answer keys).
@@ -356,13 +357,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
           onPartial: (ranked) => {
             if (generation !== tipsGeneration) return;
             if (tipsCacheKey !== cacheKey) return;
-            tipsCache = {
-              candidates: placeholder.candidates,
-              ranked,
-              bestCandidate: tipsCache?.bestCandidate ?? null,
-              status: 'computing',
-              cacheKey,
-            };
+            tipsCache = { ...placeholder, ranked };
           },
         });
         if (generation !== tipsGeneration) return;
@@ -384,7 +379,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
   }
 
   function ensureTips(): TipsSnapshot {
-    const cacheKey = tipsHistoryFingerprint(language, currentTipsHistory());
+    const cacheKey = tipsHistoryFingerprint(language, currentTipsHistory(), game.state.hardMode);
     if (tipsCache && tipsCacheKey === cacheKey) return tipsCache;
     beginTipsCompute();
     return tipsCache ?? emptyTipsSnapshot(language);
@@ -719,6 +714,13 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
     if (!result.ok) game.state.message = messages[language].invalidPaste;
   }
 
+  /** Fill the editable row from a clicked tip. Never submits. */
+  function applyTip(word: string): void {
+    if (game.state.status !== 'playing') return;
+    const result = game.setCurrentGuess(word);
+    if (!result.ok) game.state.message = messages[language].invalidPaste;
+  }
+
   function afterMutation(): void {
     if (mode === 'daily') saveCurrentActive();
   }
@@ -864,6 +866,12 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
         applyPaste(action.text);
         afterMutation();
         break;
+      case 'useTip':
+        cancelTipsCompute();
+        view = 'game';
+        applyTip(action.word);
+        afterMutation();
+        break;
       case 'moveCursor':
         game.moveCursor(action.offset);
         afterMutation();
@@ -891,6 +899,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
         || action.type === 'backspace'
         || action.type === 'delete'
         || action.type === 'paste'
+        || action.type === 'useTip'
         || action.type === 'moveCursor'
         || action.type === 'setCursor'
         || action.type === 'backToGame'

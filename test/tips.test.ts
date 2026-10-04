@@ -104,6 +104,30 @@ describe('shared tips selector', () => {
     expect(mcp.candidatesRemaining).toBe(direct.candidates.length);
     expect(mcp.bestCandidate).toBe(direct.bestCandidate);
     expect(mcp.ranked).toEqual(direct.ranked);
+    expect(mcp.decisionPath).toEqual(direct.path);
+    expect(mcp.nextQuestion).toEqual(direct.plan);
+  });
+
+  test('hard mode suggests only words that keep every revealed hint', () => {
+    const history = [{ guess: 'slate', evaluation: evaluateGuess('slate', 'crane') }];
+    const normal = selectTips({ language: 'en', history, answerKeys, allWords });
+    const hard = selectTips({ language: 'en', history, answerKeys, allWords, hardMode: true });
+
+    expect(normal.ranked.some((score) => !normal.candidates.includes(score.guess))).toBe(true);
+    expect(hard.ranked.map((score) => score.guess).sort()).toEqual([...hard.candidates].sort());
+    expect(hard.cacheKey).not.toBe(normal.cacheKey);
+  });
+
+  test('ready tips carry the decision path and the plan for the top guess', () => {
+    const history = [{ guess: 'slate', evaluation: evaluateGuess('slate', 'crane') }];
+    const tips = selectTips({ language: 'en', history, answerKeys, allWords });
+
+    expect(tips.path).toHaveLength(1);
+    expect(tips.path[0].candidatesBefore).toBe(answerKeys.length);
+    expect(tips.path[0].candidatesAfter).toBe(tips.candidates.length);
+    expect(tips.uncertaintyBits).toBeCloseTo(Math.log2(tips.candidates.length), 10);
+    expect(tips.plan?.split.guess).toBe(tips.ranked[0].guess);
+    expect(tips.plan?.split.candidates).toBe(tips.candidates.length);
   });
 
   test('history fingerprint includes language, guesses, and evaluation pattern', () => {
@@ -201,16 +225,16 @@ describe('TUI tips memoization and responsiveness', () => {
     app.dispatch({ type: 'confirmRestart' });
     const afterRestart = app.getTips();
     expect(afterRestart).not.toBe(ready);
-    expect(afterRestart.cacheKey).toBe('en|');
+    expect(afterRestart.cacheKey).toBe('en|normal|');
 
     app.dispatch({ type: 'switchLanguage' });
     const beforeRollover = app.getTips();
-    expect(beforeRollover.cacheKey).toBe('pt|');
+    expect(beforeRollover.cacheKey).toBe('pt|normal|');
 
     clock = new Date('2026-07-17T04:00:00Z');
     app.onTick(clock);
     const afterRollover = app.getTips();
-    expect(afterRollover.cacheKey).toBe('pt|');
+    expect(afterRollover.cacheKey).toBe('pt|normal|');
     expect(afterRollover).not.toBe(beforeRollover);
     app.dispatch({ type: 'quit' });
   }, 10_000);

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { TextAttributes } from '@opentui/core';
+import { ScrollBoxRenderable, TextAttributes } from '@opentui/core';
 import { createTestRenderer, setRendererCapabilities } from '@opentui/core/testing';
 import { createWordleApp } from '../src/app';
 import type { WordBank } from '../src/dictionary';
-import { createOpenTuiView } from '../src/opentui-view';
+import { resolveOpenTuiKey, resolvePointer } from '../src/input';
+import { createOpenTuiView, shortcutColumn, wrapBullet } from '../src/opentui-view';
 import { defaultStats } from '../src/stats';
 
 const banks: Record<'en' | 'pt', WordBank> = {
@@ -120,7 +121,7 @@ describe('OpenTUI view', () => {
     app.dispatch({ type: 'openHelp' });
     view.render(app.snapshot());
     await renderOnce();
-    expect(captureCharFrame()).toContain('Shortcuts:');
+    expect(captureCharFrame()).toMatch(/• Enter\s+submit guess\s+• Esc\s+quit/);
 
     app.dispatch({ type: 'backToGame' });
     app.dispatch({ type: 'openProgress' });
@@ -202,7 +203,7 @@ describe('OpenTUI view', () => {
     app.dispatch({ type: 'openHelp' });
     view.render(app.snapshot());
     await renderOnce();
-    expect(captureCharFrame()).toContain('Back: Esc or Ctrl+H');
+    expect(captureCharFrame()).toContain('Back: Esc or ?');
 
     app.dispatch({ type: 'backToGame' });
     app.dispatch({ type: 'openProgress' });
@@ -328,4 +329,165 @@ test('renders hard-mode indicator and scrolls a practice board past six rows', a
   expect(frame).toContain('[PRACTICE]');
   expect(frame).toContain('7 guesses used');
   expect(frame).toMatch(/C\s+R\s+A\s+N\s+E/);
+});
+
+describe('OpenTUI view mouse input', () => {
+  async function mouseSetup(width = 72, height = 30) {
+    const app = createApp();
+    const testRenderer = await createTestRenderer({ width, height, useMouse: true });
+    const render = () => view.render(app.snapshot());
+    const view = createOpenTuiView(testRenderer.renderer, {
+      onPointer: (target) => {
+        const snapshot = app.snapshot();
+        app.dispatch(resolvePointer({
+          view: snapshot.view,
+          status: snapshot.game.status,
+          introPending: snapshot.introPending,
+        }, target));
+        render();
+      },
+    });
+    cleanups.push(() => {
+      view.destroy();
+      testRenderer.renderer.destroy();
+    });
+    render();
+    await testRenderer.renderOnce();
+
+    async function click(id: string): Promise<void> {
+      const target = testRenderer.renderer.root.findDescendantById(id);
+      if (!target) throw new Error(`missing renderable ${id}`);
+      await testRenderer.mockMouse.click(target.x + 1, target.y);
+      await testRenderer.renderOnce();
+    }
+
+    return { app, click, render, ...testRenderer };
+  }
+
+  test('on-screen keys type, delete, and submit', async () => {
+    const { app, click } = await mouseSetup();
+
+    for (const letter of 'slatx') await click(`key-${letter}`);
+    await click('key-backspace');
+    await click('key-e');
+    expect(app.snapshot().game.slots).toEqual(['s', 'l', 'a', 't', 'e']);
+
+    await click('key-enter');
+    expect(app.snapshot().game.guesses).toEqual(['slate']);
+  });
+
+  test('a click on an editable slot moves the cursor; other rows ignore clicks', async () => {
+    const { app, click } = await mouseSetup();
+
+    await click('tile-0-3');
+    expect(app.snapshot().game.cursorPosition).toBe(3);
+
+    await click('tile-2-1');
+    expect(app.snapshot().game.cursorPosition).toBe(3);
+  });
+
+  test('a click on a tip fills the row and returns to the game', async () => {
+    const { app, click, render, renderOnce, captureCharFrame } = await mouseSetup();
+    app.dispatch({ type: 'openTips' });
+    render();
+    await renderOnce();
+    const tipWord = app.snapshot().tips!.ranked[0].guess;
+
+    await click('tips-view-row-0');
+
+    expect(app.snapshot().view).toBe('game');
+    expect(app.snapshot().game.slots.join('')).toBe(tipWord);
+    expect(captureCharFrame()).toContain('WORDLE TUI');
+  });
+
+  test('hidden panels do not receive clicks', async () => {
+    const { app, click } = await mouseSetup();
+    app.dispatch({ type: 'openHelp' });
+
+    await click('key-a');
+
+    expect(app.snapshot().game.slots).toEqual([null, null, null, null, null]);
+  });
+
+  test('tips scroll by wheel and arrows, and keys still close them', async () => {
+    const { app, render, renderOnce, renderer, mockMouse, mockInput } = await mouseSetup(72, 16);
+    renderer.keyInput.on('keypress', (key) => {
+      const snapshot = app.snapshot();
+      app.dispatch(resolveOpenTuiKey({
+        view: snapshot.view,
+        status: snapshot.game.status,
+        introPending: snapshot.introPending,
+      }, key));
+      render();
+    });
+    app.dispatch({ type: 'openTips' });
+    await app.flushTips();
+    render();
+    await renderOnce();
+    const scroll = renderer.root.findDescendantById('tips-view-scroll') as ScrollBoxRenderable;
+
+    await mockMouse.scroll(scroll.x + 2, scroll.y + 2, 'down');
+    await renderOnce();
+    const afterWheel = scroll.scrollTop;
+    expect(afterWheel).toBeGreaterThan(0);
+
+    mockInput.pressArrow('down');
+    await renderOnce();
+    expect(scroll.scrollTop).toBeGreaterThan(afterWheel);
+
+    // The focused scroll box must not swallow keys. Tab avoids the lone-ESC parser timeout.
+    mockInput.pressTab();
+    await renderOnce();
+    expect(app.snapshot().view).toBe('game');
+  });
+
+  test('tips show the decision path, next question, and basis', async () => {
+    const { app, render, renderOnce, captureCharFrame } = await mouseSetup(72, 40);
+    typeWord(app, 'slate');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'openTips' });
+    render();
+    await renderOnce();
+
+    const frame = captureCharFrame();
+    expect(frame).toContain('Decision path');
+    expect(frame).toMatch(/SLATE ××✓×✓\s+1\s+\+0\.00 bits/);
+    expect(frame).toContain('Next question: CRANE');
+    expect(frame).toContain('Basis:');
+  });
+});
+
+describe('shortcut layout', () => {
+  test('shows shortcuts in two columns when the terminal is tall enough', async () => {
+    const app = createApp(undefined, 'pt');
+    const { view, renderOnce, captureCharFrame } = await setup(72, 30);
+
+    view.render(app.snapshot());
+    await renderOnce();
+
+    expect(captureCharFrame()).toMatch(/• Enter\s+enviar palpite\s+• \?\s+ajuda e atalhos/);
+  });
+
+  test('replaces the columns with a one-line hint when height is short', async () => {
+    const app = createApp();
+    const { view, renderOnce, captureCharFrame } = await setup(72, 23);
+
+    view.render(app.snapshot());
+    await renderOnce();
+
+    const frame = captureCharFrame();
+    expect(frame).toContain('Press ? for help and shortcuts.');
+    expect(frame).not.toContain('submit guess');
+  });
+
+  test('aligns keys, and switches every line to "keys: action" when one overflows', () => {
+    const hints = [['Enter', 'submit guess'], ['Backspace', 'clear previous slot']] as const;
+
+    expect(shortcutColumn(hints, '•')).toBe('• Enter      submit guess\n• Backspace  clear previous slot');
+    expect(shortcutColumn(hints, '-', 20)).toBe('- Enter: submit\n  guess\n- Backspace: clear\n  previous slot');
+  });
+
+  test('wraps bullet items with a hanging indent', () => {
+    expect(wrapBullet('one two three four', 11, '•')).toBe('• one two\n  three\n  four');
+  });
 });

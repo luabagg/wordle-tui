@@ -23,9 +23,18 @@ test('finished games accept q to quit and r to restart', () => {
   expect(isRestartCommand({ name: 'r', ctrl: false }, 'lost')).toBe(true);
 });
 
+test('? opens help; Ctrl+H is never help because terminals send it as Backspace', () => {
+  const playing = { view: 'game' as const, status: 'playing' as const, introPending: false };
+  expect(isHelpCommand({ sequence: '?' })).toBe(true);
+  expect(isHelpCommand({ sequence: '?', ctrl: true })).toBe(false);
+  expect(resolveOpenTuiKey(playing, { name: '?', sequence: '?' })).toEqual({ type: 'openHelp' });
+  expect(resolveOpenTuiKey({ ...playing, view: 'help' }, { name: '?', sequence: '?' }))
+    .toEqual({ type: 'backToGame' });
+  // What a legacy terminal delivers for Ctrl+H.
+  expect(resolveOpenTuiKey(playing, { name: 'backspace', sequence: '\b' })).toEqual({ type: 'backspace' });
+});
+
 test('ctrl shortcuts preserve their plain-letter equivalents', () => {
-  expect(isHelpCommand({ name: 'h', ctrl: true })).toBe(true);
-  expect(isHelpCommand({ name: 'h', ctrl: false })).toBe(false);
   expect(isProgressCommand({ name: 'p', ctrl: true })).toBe(true);
   expect(isProgressCommand({ name: 'p', ctrl: false })).toBe(false);
   expect(isLanguageSwitchCommand({ name: 'l', ctrl: true })).toBe(true);
@@ -60,7 +69,7 @@ test('OpenTUI key events map to the action contract', () => {
   expect(resolveOpenTuiKey(playing, { name: 'backspace', sequence: '\b' })).toEqual({ type: 'backspace' });
   expect(resolveOpenTuiKey(playing, { name: 'delete', sequence: '\u001b[3~' })).toEqual({ type: 'delete' });
   expect(resolveOpenTuiKey(playing, { name: 'tab', sequence: '\t' })).toEqual({ type: 'openTips' });
-  expect(resolveOpenTuiKey(playing, { name: 'h', ctrl: true, sequence: '\b' })).toEqual({ type: 'openHelp' });
+  expect(resolveOpenTuiKey(playing, { name: '?', sequence: '?' })).toEqual({ type: 'openHelp' });
   expect(resolveOpenTuiKey(playing, { name: 'p', ctrl: true, sequence: '\u0010' })).toEqual({ type: 'openProgress' });
   expect(resolveOpenTuiKey(playing, { name: 'l', ctrl: true, sequence: '\f' })).toEqual({ type: 'switchLanguage' });
   expect(resolveOpenTuiKey(playing, { name: 'r', ctrl: true, sequence: '\u0012' })).toEqual({ type: 'restart' });

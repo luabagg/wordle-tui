@@ -4,9 +4,10 @@ import { CliRenderEvents } from '@opentui/core';
 import type { CliRenderer, CliRendererConfig } from '@opentui/core';
 import type { AppSnapshot, CreateWordleAppOptions, WordleApp } from '../src/app';
 import { run } from '../src/cli';
-import type { OpenTuiView } from '../src/opentui-view';
+import type { CreateOpenTuiViewOptions, OpenTuiView } from '../src/opentui-view';
 import { main } from '../src/index';
 import { defaultStats } from '../src/stats';
+import { emptyTipsSnapshot } from '../src/tips';
 
 class FakeRenderer extends EventEmitter {
   readonly keyInput = new EventEmitter();
@@ -78,13 +79,7 @@ function setupFakes() {
     },
     onTick: () => { tickCalls += 1; },
     getGame: () => { throw new Error('not needed'); },
-    getTips: () => ({
-      candidates: [],
-      ranked: [],
-      bestCandidate: null,
-      status: 'ready',
-      cacheKey: 'en|',
-    }),
+    getTips: () => emptyTipsSnapshot('en'),
     flushTips: async () => { flushTipsCalls += 1; },
   };
   let renderCalls = 0;
@@ -166,7 +161,7 @@ describe('OpenTUI CLI lifecycle', () => {
       exitOnCtrlC: false,
       clearOnShutdown: true,
       consoleMode: 'disabled',
-      useMouse: false,
+      useMouse: true,
     });
     expect(fakes.getRenderCalls()).toBe(1);
     expect(glyphs).toBe('ascii');
@@ -195,6 +190,24 @@ describe('OpenTUI CLI lifecycle', () => {
     runtime.shutdown();
     expect(fakes.getViewDestroyCalls()).toBe(1);
     expect(fakes.renderer.destroyCalls).toBe(1);
+  });
+
+  test('routes view clicks through the pointer resolver and redraws', async () => {
+    const fakes = setupFakes();
+    let onPointer: CreateOpenTuiViewOptions['onPointer'];
+    await run([], {
+      ...fakes.dependencies,
+      createView: ((_renderer: CliRenderer, options: CreateOpenTuiViewOptions = {}) => {
+        onPointer = options.onPointer;
+        return fakes.view;
+      }) as typeof import('../src/opentui-view').createOpenTuiView,
+    });
+    const before = fakes.getRenderCalls();
+
+    onPointer?.({ kind: 'letter', char: 'r' });
+
+    expect(fakes.actions).toContainEqual({ type: 'type', char: 'r' });
+    expect(fakes.getRenderCalls()).toBe(before + 1);
   });
 
   test('repaints when cooperative tips ranking completes', async () => {

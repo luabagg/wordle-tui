@@ -58,7 +58,7 @@ WORDLE_ASCII=1 bun run start
 - `Backspace`: clear the previous slot and move left
 - `Delete`: clear the current slot without moving
 - `Tab`: tips
-- `Ctrl+H`: help
+- `?`: help and the full shortcut list (Ctrl+H is not used: terminals send it as Backspace)
 - `Ctrl+P`: progress
 - `Ctrl+L`: switch language (each language keeps its own in-progress board)
 - `Ctrl+R`: restart (asks for confirmation when the daily board has progress)
@@ -76,6 +76,15 @@ WORDLE_ASCII=1 bun run start
 - `Ctrl+T`: return to the preserved daily board from practice
 
 In help, progress, and tips, `Esc` returns to the game. The matching shortcut also closes each view.
+
+### Mouse
+
+- Click an on-screen key to type a letter. `ENTER` submits and `⌫` (`<-` in ASCII mode) clears the previous slot.
+- Click a slot in the current row to move the cursor there.
+- In tips, click a ranked guess to fill the current row. It never submits.
+- Scroll the tips view with the mouse wheel, or with the arrow and page keys.
+
+Mouse tracking takes over the terminal's text selection. Most terminals bypass it while you hold `Shift`. Use `Shift`+drag to copy the share result when the clipboard is unavailable.
 
 ## Daily game and statistics
 
@@ -105,11 +114,19 @@ Illegal guesses are rejected without changing the board. The hard-mode preferenc
 
 ## Tips
 
+Tips treat the game as a decision tree, as in ID3. Each guess is a question, and each feedback pattern is a branch. Guesses rank by expected information gain: the Shannon entropy `H = -sum p * log2(p)` of the feedback patterns, with all remaining answers equally likely.
+
 Press `Tab` to see:
 
-- remaining answer candidates
+- remaining answer candidates and the uncertainty, `log2(candidates)` bits
 - the best remaining answer candidate
-- entropy-ranked guesses
+- guesses ranked by information gain (click one to use it)
+- the decision path: candidates left and bits gained after each guess
+- the next question: the top guess, its expected bits, and the expected candidates left
+- its branches: count, probability, bits revealed, and the follow-up guess of each
+- a greedy-tree estimate: mean and worst-case guesses still needed, counting the next one
+
+Ties rank in a fixed order: guesses that can still win first, then the smaller worst-case branch, then alphabetical order. In hard mode, tips suggest only guesses that keep every revealed hint. The greedy tree picks each follow-up from that branch's candidates, so its worst case can exceed the six-guess limit.
 
 Tips use only bundled local dictionaries.
 
@@ -127,7 +144,7 @@ Available tools:
 - `get_state`
 - `submit_guess`
 - `switch_language`
-- `get_tips`
+- `get_tips` (ranked guesses, decision path, and the split of the next question)
 
 ## Development
 

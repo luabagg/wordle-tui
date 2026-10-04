@@ -23,6 +23,7 @@ export type Action =
   | { type: 'backspace' }
   | { type: 'delete' }
   | { type: 'paste'; text: string }
+  | { type: 'useTip'; word: string }
   | { type: 'moveCursor'; offset: number }
   | { type: 'setCursor'; position: number | 'end' }
   | { type: 'type'; char: string }
@@ -35,6 +36,14 @@ export interface ResolveContext {
   /** When true, Escape dismisses the rollover/status notice instead of quitting. */
   noticeVisible?: boolean;
 }
+
+/** What a left click landed on, as reported by the view. */
+export type PointerTarget =
+  | { kind: 'letter'; char: string }
+  | { kind: 'enter' }
+  | { kind: 'backspace' }
+  | { kind: 'slot'; index: number }
+  | { kind: 'tip'; word: string };
 
 export interface KeyLike {
   name?: string;
@@ -54,8 +63,12 @@ export function isRestartCommand(key: Pick<KeyLike, 'ctrl' | 'name'>, status: Ga
   return (Boolean(key.ctrl) && key.name === 'r') || (status !== 'playing' && key.name === 'r');
 }
 
-export function isHelpCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
-  return Boolean(key.ctrl && key.name === 'h');
+/**
+ * `?` opens help. Ctrl+H cannot be used: terminals send it as 0x08, which
+ * OpenTUI parses as Backspace.
+ */
+export function isHelpCommand(key: Pick<KeyLike, 'ctrl' | 'meta' | 'sequence'>): boolean {
+  return !key.ctrl && !key.meta && key.sequence === '?';
 }
 
 export function isProgressCommand(key: Pick<KeyLike, 'ctrl' | 'name'>): boolean {
@@ -107,7 +120,7 @@ export function resolveKey(context: ResolveContext, str: string, key: KeyLike): 
   }
 
   if (view === 'help') {
-    if (introPending || key.name === 'escape' || (key.ctrl && key.name === 'h')) {
+    if (introPending || key.name === 'escape' || isHelpCommand({ ...key, sequence: str })) {
       return { type: introPending ? 'dismissIntro' : 'backToGame' };
     }
     return { type: 'noop' };
@@ -123,7 +136,7 @@ export function resolveKey(context: ResolveContext, str: string, key: KeyLike): 
     return { type: 'noop' };
   }
 
-  if (key.ctrl && key.name === 'h') return { type: 'openHelp' };
+  if (isHelpCommand({ ...key, sequence: str })) return { type: 'openHelp' };
   if (key.ctrl && key.name === 'p') return { type: 'openProgress' };
   if (isLanguageSwitchCommand(key)) return { type: 'switchLanguage' };
   if (isHardModeToggleCommand(key)) return { type: 'toggleHardMode' };
@@ -149,6 +162,33 @@ export function resolveKey(context: ResolveContext, str: string, key: KeyLike): 
   if (str && !key.ctrl && !key.meta) return { type: 'type', char: str };
 
   return { type: 'noop' };
+}
+
+/**
+ * Map a click to an action. Clicks act only on the editable game row or the
+ * tips list. They never reach shortcut handling, so a click on the R key types
+ * a letter and never restarts.
+ */
+export function resolvePointer(context: ResolveContext, target: PointerTarget): Action {
+  if (context.view === 'tips') {
+    return target.kind === 'tip' ? { type: 'useTip', word: target.word } : { type: 'noop' };
+  }
+  if (context.view !== 'game' || context.introPending || context.status !== 'playing') {
+    return { type: 'noop' };
+  }
+
+  switch (target.kind) {
+    case 'letter':
+      return { type: 'type', char: target.char };
+    case 'enter':
+      return { type: 'submit' };
+    case 'backspace':
+      return { type: 'backspace' };
+    case 'slot':
+      return { type: 'setCursor', position: target.index };
+    case 'tip':
+      return { type: 'noop' };
+  }
 }
 
 export function resolveOpenTuiKey(context: ResolveContext, key: KeyLike): Action {

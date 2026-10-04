@@ -1,11 +1,24 @@
 export type Language = 'en' | 'pt';
 
+/** One shortcut: the keys to press and what they do. */
+export type ShortcutHint = readonly [keys: string, action: string];
+
+/** Shortcuts shown side by side, or stacked left first when narrow. */
+export type ShortcutColumns = readonly [left: readonly ShortcutHint[], right: readonly ShortcutHint[]];
+
+export interface HelpSection {
+  title: string;
+  items: string[];
+}
+
 export interface GameStrings {
   title: string;
   subtitle: string;
   subtitlePractice: string;
-  controlsPlaying: string;
-  controlsFinished: string;
+  controlsPlaying: ShortcutColumns;
+  controlsFinished: ShortcutColumns;
+  /** One-line stand-in when the shortcut columns do not fit. */
+  controlsHint: string;
   accentHint: string;
   guessesUsed: (used: number, remaining: number) => string;
   guessesUsedPractice: (used: number) => string;
@@ -33,13 +46,16 @@ export interface GameStrings {
   gameReset: string;
   helpTitle: string;
   helpIntro: string;
-  helpInstructions: string;
+  helpPlay: HelpSection;
   helpLegendTitle: string;
   helpLegendCorrect: string;
   helpLegendPresent: string;
   helpLegendAbsent: string;
-  helpAutosave: string;
-  helpShortcuts: string;
+  helpShortcutsTitle: string;
+  helpShortcuts: ShortcutColumns;
+  helpModes: HelpSection;
+  helpMouse: HelpSection;
+  helpSaving: HelpSection;
   helpBack: string;
   restartConfirmTitle: string;
   restartConfirmBody: string;
@@ -59,6 +75,17 @@ export interface GameStrings {
   tipsTopGuesses: string;
   tipsNoSuggestions: string;
   tipsBack: string;
+  tipsUncertainty: (bits: string) => string;
+  tipsPathTitle: string;
+  tipsPathStart: string;
+  tipsPathNoMatch: string;
+  tipsNextQuestion: (word: string, bits: string, totalBits: string) => string;
+  tipsExpectedRemaining: (count: string) => string;
+  tipsSolveEstimate: (expected: string, worst: number) => string;
+  tipsBranchSolved: string;
+  tipsMoreBranches: (count: number) => string;
+  tipsBasis: string;
+  tipsScrollHint: string;
 }
 
 export const messages: Record<Language, GameStrings> = {
@@ -66,8 +93,35 @@ export const messages: Record<Language, GameStrings> = {
     title: 'WORDLE TUI',
     subtitle: 'Guess the 5-letter word in 6 tries.',
     subtitlePractice: 'Practice mode · unlimited attempts · no daily stats.',
-    controlsPlaying: 'Type or paste a word. Arrows move. Enter submits. Backspace/Delete clear slots. Ctrl+D hard mode. Ctrl+T practice. Ctrl+Z undo. Ctrl+H help. Ctrl+P progress. Ctrl+L language. Tab tips. Esc quits.',
-    controlsFinished: 'Round over. R restarts, Q quits, S shares, Ctrl+Z undo (if allowed), Ctrl+T practice, Ctrl+H help, Ctrl+P progress, Ctrl+L language, Tab tips.',
+    controlsPlaying: [
+      [
+        ['Enter', 'submit guess'],
+        ['Bksp / Del', 'clear a slot'],
+        ['Arrows', 'move cursor'],
+        ['Tab', 'tips'],
+      ],
+      [
+        ['?', 'help & shortcuts'],
+        ['Ctrl+P', 'progress'],
+        ['Ctrl+L', 'language'],
+        ['Esc', 'quit'],
+      ],
+    ],
+    controlsFinished: [
+      [
+        ['S', 'share result'],
+        ['R', 'restart'],
+        ['Q', 'quit'],
+        ['Ctrl+Z', 'undo last guess'],
+      ],
+      [
+        ['Tab', 'tips'],
+        ['?', 'help & shortcuts'],
+        ['Ctrl+P', 'progress'],
+        ['Ctrl+T', 'practice'],
+      ],
+    ],
+    controlsHint: 'Press ? for help and shortcuts.',
     accentHint: '',
     guessesUsed: (used, remaining) => `${used} guess${used === 1 ? '' : 'es'} used • ${remaining} remaining`,
     guessesUsedPractice: (used) => `${used} guess${used === 1 ? '' : 'es'} used • unlimited`,
@@ -97,14 +151,62 @@ export const messages: Record<Language, GameStrings> = {
     gameReset: 'Game restarted. Guess the daily word.',
     helpTitle: ' WORDLE TUI ',
     helpIntro: 'Guess the 5-letter word in 6 tries.',
-    helpInstructions: 'Type or paste one word, press Enter to submit, and use Backspace/Delete to clear slots. Paste never submits automatically. Hard mode enforces official green/yellow reuse. Practice mode uses unlimited attempts and never records daily stats. Ctrl+Z undoes only the latest submitted row when allowed.',
-    helpLegendTitle: 'Legend',
+    helpPlay: {
+      title: 'How to play',
+      items: [
+        'Type or paste a word, then press Enter.',
+        'Pasting fills the row but never submits.',
+      ],
+    },
+    helpLegendTitle: 'Colors',
     helpLegendCorrect: 'correct',
     helpLegendPresent: 'exists',
     helpLegendAbsent: 'absent',
-    helpAutosave: 'In-progress boards, completed daily results, and statistics are saved on this computer. English and Portuguese sessions are kept separately. Practice boards are not written to daily stats.',
-    helpShortcuts: 'Shortcuts: Ctrl+H help, Ctrl+P progress, Ctrl+L language, Tab tips, Ctrl+R restart, Ctrl+D hard mode, Ctrl+T practice, Ctrl+Z undo, Esc quits.',
-    helpBack: 'Back: Esc or Ctrl+H',
+    helpShortcutsTitle: 'Shortcuts',
+    helpShortcuts: [
+      [
+        ['Enter', 'submit guess'],
+        ['Backspace', 'clear previous slot'],
+        ['Delete', 'clear current slot'],
+        ['Arrows/Home/End', 'move cursor'],
+        ['Tab', 'tips'],
+        ['?', 'help'],
+      ],
+      [
+        ['Esc', 'quit'],
+        ['Ctrl+P', 'progress'],
+        ['Ctrl+L', 'switch language'],
+        ['Ctrl+R', 'restart'],
+        ['Ctrl+D', 'hard mode'],
+        ['Ctrl+T', 'practice mode'],
+        ['Ctrl+Z', 'undo last guess'],
+      ],
+    ],
+    helpModes: {
+      title: 'Modes',
+      items: [
+        'Hard mode: later guesses must reuse every green and yellow hint.',
+        'Practice: unlimited tries, and nothing counts toward daily stats.',
+        'Undo removes your last guess, unless the daily result is already recorded.',
+      ],
+    },
+    helpMouse: {
+      title: 'Mouse',
+      items: [
+        'Click a key to type it.',
+        'Click a slot in the current row to move the cursor.',
+        'Click a tip to fill the row.',
+        'Hold Shift to select text.',
+      ],
+    },
+    helpSaving: {
+      title: 'Saving',
+      items: [
+        'Boards, results, and stats are saved on this computer.',
+        'English and Portuguese keep separate boards.',
+      ],
+    },
+    helpBack: 'Back: Esc or ?',
     restartConfirmTitle: ' Restart game? ',
     restartConfirmBody: 'You have an unfinished daily puzzle. Restarting clears this language board.',
     restartConfirmPrompt: 'Y / Enter restart · N / Esc cancel',
@@ -116,24 +218,65 @@ export const messages: Record<Language, GameStrings> = {
     progressBack: 'Back: Esc or Ctrl+P',
     sharePrompt: 'Share: press S to copy',
     shareCopied: 'Result copied.',
-    shareUnavailable: 'Clipboard unavailable. Copy the result below.',
+    shareUnavailable: 'Clipboard unavailable. Hold Shift and drag to select the result below.',
     terminalTooSmall: 'Terminal too small for this view. Resize the window.',
     tipsTitle: ' TIPS ',
     tipsCandidateCount: (count) => `${count} candidate${count === 1 ? '' : 's'} remain`,
     tipsBestCandidate: (word) => `Best candidate: ${word.toUpperCase()}`,
-    tipsTopGuesses: 'Top entropy guesses',
+    tipsTopGuesses: 'Top entropy guesses (click to use)',
     tipsNoSuggestions: 'No suggestions available.',
     tipsBack: 'Back: Tab or Esc',
+    tipsUncertainty: (bits) => `${bits} bits of uncertainty`,
+    tipsPathTitle: 'Decision path',
+    tipsPathStart: 'start',
+    tipsPathNoMatch: 'no answer matches',
+    tipsNextQuestion: (word, bits, totalBits) => `Next question: ${word.toUpperCase()}, ${bits} of ${totalBits} bits expected`,
+    tipsExpectedRemaining: (count) => `Expected candidates left: ${count}`,
+    tipsSolveEstimate: (expected, worst) => `Greedy tree from here: ${expected} more guesses on average, ${worst} at most`,
+    tipsBranchSolved: 'solved',
+    tipsMoreBranches: (count) => `+${count} more branch${count === 1 ? '' : 'es'}`,
+    tipsBasis: 'Basis: each guess is a decision-tree question, and its feedback picks a branch. Guesses rank by expected information gain, H = -sum p*log2(p) bits over the branches.',
+    tipsScrollHint: 'Scroll: wheel or arrows',
   },
   pt: {
     title: 'TERMO TUI',
     subtitle: 'Descubra a palavra certa em 6 tentativas.',
     subtitlePractice: 'Modo treino · tentativas ilimitadas · sem estatísticas diárias.',
-    controlsPlaying: 'Digite ou cole uma palavra. Setas movem. Enter envia. Backspace/Delete limpam casas. Ctrl+D modo difícil. Ctrl+T treino. Ctrl+Z desfazer. Ctrl+H ajuda. Ctrl+P progresso. Ctrl+L idioma. Tab dicas. Esc sai.',
-    controlsFinished: 'Fim da rodada. R reinicia, Q sai, S compartilha, Ctrl+Z desfaz (se permitido), Ctrl+T treino, Ctrl+H ajuda, Ctrl+P progresso, Ctrl+L idioma, Tab dicas.',
+    controlsPlaying: [
+      [
+        ['Enter', 'enviar palpite'],
+        ['Bksp / Del', 'limpar casa'],
+        ['Setas', 'mover cursor'],
+        ['Tab', 'dicas'],
+      ],
+      [
+        ['?', 'ajuda e atalhos'],
+        ['Ctrl+P', 'progresso'],
+        ['Ctrl+L', 'idioma'],
+        ['Esc', 'sair'],
+      ],
+    ],
+    controlsFinished: [
+      [
+        ['S', 'compartilhar'],
+        ['R', 'reiniciar'],
+        ['Q', 'sair'],
+        ['Ctrl+Z', 'desfazer palpite'],
+      ],
+      [
+        ['Tab', 'dicas'],
+        ['?', 'ajuda e atalhos'],
+        ['Ctrl+P', 'progresso'],
+        ['Ctrl+T', 'treino'],
+      ],
+    ],
+    controlsHint: 'Aperte ? para ver a ajuda e os atalhos.',
     accentHint: 'Acentos aparecem automaticamente e não contam nas dicas.',
-    guessesUsed: (used, remaining) => `${used} tentativa${used === 1 ? '' : 's'} usadas • ${remaining} tentativa${remaining === 1 ? '' : 's'} restantes`,
-    guessesUsedPractice: (used) => `${used} tentativa${used === 1 ? '' : 's'} usadas • ilimitadas`,
+    guessesUsed: (used, remaining) => {
+      const usedPlural = used === 1 ? '' : 's';
+      return `${used} tentativa${usedPlural} usada${usedPlural} • ${remaining} restante${remaining === 1 ? '' : 's'}`;
+    },
+    guessesUsedPractice: (used) => `${used} tentativa${used === 1 ? '' : 's'} usada${used === 1 ? '' : 's'} • ilimitadas`,
     hardModeOn: 'DIFÍCIL',
     hardModeOff: 'Normal',
     hardModeMustUsePosition: (position, letter) =>
@@ -160,14 +303,63 @@ export const messages: Record<Language, GameStrings> = {
     gameReset: 'Jogo reiniciado. Descubra a palavra de hoje.',
     helpTitle: ' TERMO TUI ',
     helpIntro: 'Descubra a palavra certa em 6 tentativas.',
-    helpInstructions: 'Digite ou cole uma palavra, use Enter para enviar e Backspace/Delete para limpar casas. Colar nunca envia automaticamente. O modo difícil exige reutilizar verdes e amarelos oficiais. O modo treino tem tentativas ilimitadas e não grava estatísticas diárias. Ctrl+Z desfaz só a última linha enviada quando permitido.',
-    helpLegendTitle: 'Legenda',
+    helpPlay: {
+      title: 'Como jogar',
+      items: [
+        'Digite ou cole uma palavra e aperte Enter.',
+        'Colar preenche a linha, mas nunca envia.',
+        'Os acentos aparecem sozinhos e não contam nas dicas.',
+      ],
+    },
+    helpLegendTitle: 'Cores',
     helpLegendCorrect: 'correta',
     helpLegendPresent: 'existe',
     helpLegendAbsent: 'fora',
-    helpAutosave: 'Tabuleiros em andamento, resultados diários concluídos e estatísticas ficam salvos neste computador. Sessões em inglês e português são mantidas separadas. Treinos não entram nas estatísticas diárias.',
-    helpShortcuts: 'Atalhos: Ctrl+H ajuda, Ctrl+P progresso, Ctrl+L idioma, Tab dicas, Ctrl+R reinicia, Ctrl+D modo difícil, Ctrl+T treino, Ctrl+Z desfazer, Esc sai do jogo.',
-    helpBack: 'Voltar: Esc ou Ctrl+H',
+    helpShortcutsTitle: 'Atalhos',
+    helpShortcuts: [
+      [
+        ['Enter', 'enviar palpite'],
+        ['Backspace', 'limpar casa anterior'],
+        ['Delete', 'limpar casa atual'],
+        ['Setas/Home/End', 'mover cursor'],
+        ['Tab', 'dicas'],
+        ['?', 'ajuda'],
+      ],
+      [
+        ['Esc', 'sair'],
+        ['Ctrl+P', 'progresso'],
+        ['Ctrl+L', 'trocar idioma'],
+        ['Ctrl+R', 'reiniciar'],
+        ['Ctrl+D', 'modo difícil'],
+        ['Ctrl+T', 'modo treino'],
+        ['Ctrl+Z', 'desfazer palpite'],
+      ],
+    ],
+    helpModes: {
+      title: 'Modos',
+      items: [
+        'Modo difícil: os próximos palpites precisam reutilizar todas as letras verdes e amarelas.',
+        'Treino: tentativas ilimitadas, e nada conta nas estatísticas diárias.',
+        'Desfazer remove o último palpite, se o resultado diário ainda não foi registrado.',
+      ],
+    },
+    helpMouse: {
+      title: 'Mouse',
+      items: [
+        'Clique em uma tecla para digitar.',
+        'Clique em uma casa da linha atual para mover o cursor.',
+        'Clique em uma dica para preencher a linha.',
+        'Segure Shift para selecionar texto.',
+      ],
+    },
+    helpSaving: {
+      title: 'Salvamento',
+      items: [
+        'Tabuleiros, resultados e estatísticas ficam salvos neste computador.',
+        'Inglês e português têm tabuleiros separados.',
+      ],
+    },
+    helpBack: 'Voltar: Esc ou ?',
     restartConfirmTitle: ' Reiniciar jogo? ',
     restartConfirmBody: 'Há um jogo diário incompleto. Reiniciar apaga o tabuleiro deste idioma.',
     restartConfirmPrompt: 'Y / Enter reinicia · N / Esc cancela',
@@ -179,13 +371,24 @@ export const messages: Record<Language, GameStrings> = {
     progressBack: 'Voltar: Esc ou Ctrl+P',
     sharePrompt: 'Compartilhar: pressione S para copiar',
     shareCopied: 'Resultado copiado.',
-    shareUnavailable: 'Área de transferência indisponível. Copie o resultado abaixo.',
+    shareUnavailable: 'Área de transferência indisponível. Segure Shift e arraste para selecionar o resultado abaixo.',
     terminalTooSmall: 'Terminal pequeno demais para esta tela. Aumente a janela.',
     tipsTitle: ' DICAS ',
     tipsCandidateCount: (count) => `${count} candidato${count === 1 ? '' : 's'} restante${count === 1 ? '' : 's'}`,
     tipsBestCandidate: (word) => `Melhor candidato: ${word.toUpperCase()}`,
-    tipsTopGuesses: 'Melhores palpites por entropia',
+    tipsTopGuesses: 'Melhores palpites por entropia (clique para usar)',
     tipsNoSuggestions: 'Nenhuma sugestão disponível.',
     tipsBack: 'Voltar: Tab ou Esc',
+    tipsUncertainty: (bits) => `${bits} bits de incerteza`,
+    tipsPathTitle: 'Caminho de decisão',
+    tipsPathStart: 'início',
+    tipsPathNoMatch: 'nenhuma resposta corresponde',
+    tipsNextQuestion: (word, bits, totalBits) => `Próxima pergunta: ${word.toUpperCase()}, ${bits} de ${totalBits} bits esperados`,
+    tipsExpectedRemaining: (count) => `Candidatos restantes esperados: ${count}`,
+    tipsSolveEstimate: (expected, worst) => `Árvore gulosa a partir daqui: mais ${expected} palpites em média, ${worst} no máximo`,
+    tipsBranchSolved: 'resolvido',
+    tipsMoreBranches: (count) => `+${count} ramo${count === 1 ? '' : 's'}`,
+    tipsBasis: 'Base: cada palpite é uma pergunta de árvore de decisão, e o retorno escolhe um ramo. Os palpites são ordenados pelo ganho de informação esperado, H = -soma p*log2(p) bits sobre os ramos.',
+    tipsScrollHint: 'Rolar: roda do mouse ou setas',
   },
 };

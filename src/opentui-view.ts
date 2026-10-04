@@ -1,14 +1,17 @@
 import {
   BoxRenderable,
+  MouseButton,
   ScrollBoxRenderable,
   TextAttributes,
   TextRenderable,
 } from '@opentui/core';
-import type { CliRenderer, TerminalCapabilities } from '@opentui/core';
-import type { AppSnapshot } from './app';
+import type { CliRenderer, MouseEvent, TerminalCapabilities } from '@opentui/core';
+import type { AppSnapshot, TipsSnapshot } from './app';
 import { MAX_GUESSES, TILE, WORD_LENGTH } from './game';
 import type { GameStatus, TileState } from './game';
 import { messages } from './i18n';
+import type { GameStrings, HelpSection, ShortcutColumns, ShortcutHint } from './i18n';
+import type { PointerTarget } from './input';
 import { buildShareText, distributionRows, winRate } from './stats';
 import type { ShareGlyphMode } from './stats';
 
@@ -65,6 +68,22 @@ interface TileCell {
   text: TextRenderable;
 }
 
+interface TipsPanel {
+  panel: BoxRenderable;
+  title: TextRenderable;
+  scroll: ScrollBoxRenderable;
+  summary: TextRenderable;
+  rankedTitle: TextRenderable;
+  rows: TextRenderable[];
+  tree: TextRenderable;
+  back: TextRenderable;
+}
+
+/** Clickable ranked-guess rows in the tips view. */
+const TIPS_ROW_LIMIT = 8;
+/** Pattern branches listed under the next question. */
+const TIPS_BRANCH_LIMIT = 6;
+
 interface TextPanel {
   panel: BoxRenderable;
   title: TextRenderable;
@@ -85,6 +104,8 @@ export interface CreateOpenTuiViewOptions {
   capabilities?: CapabilityBag | null;
   /** Explicit glyph choice; OpenTUI WidthMethod does not describe Unicode support. */
   glyphs?: GlyphMode;
+  /** Receives left clicks on keys, editable slots, and tip rows. */
+  onPointer?: (target: PointerTarget) => void;
 }
 
 export function resolvePresentationMode(
@@ -112,6 +133,133 @@ function legendMarks(glyphs: GlyphMode): { correct: string; present: string; abs
   return { correct: '✓', present: '~', absent: '×' };
 }
 
+const COLUMN_GAP = 4;
+/**
+ * Rows the full game layout needs with the shortcut block (margin plus four
+ * rows) and the Portuguese accent hint. Below this, the block is hidden.
+ */
+const CONTROLS_MIN_HEIGHT = 25;
+
+interface ColumnPair {
+  row: BoxRenderable;
+  left: TextRenderable;
+  right: TextRenderable;
+}
+
+interface HelpPanel {
+  panel: BoxRenderable;
+  title: TextRenderable;
+  scroll: ScrollBoxRenderable;
+  intro: TextRenderable;
+  shortcutsTitle: TextRenderable;
+  shortcuts: ColumnPair;
+  sections: TextRenderable;
+  back: TextRenderable;
+}
+
+function bulletGlyph(glyphs: GlyphMode): string {
+  return glyphs === 'ascii' ? '-' : '•';
+}
+
+function textWidth(text: string): number {
+  return Math.max(0, ...text.split('\n').map((line) => line.length));
+}
+
+/**
+ * Greedy word wrap to `width` cells. Continuation lines start with `indent`,
+ * so a bullet's wrapped lines align under its text.
+ */
+export function wrapText(text: string, width: number, prefix = '', indent = ''): string {
+  const limit = Math.max(indent.length + 1, width);
+  const lines: string[] = [];
+  let line = prefix;
+  let lineStart = prefix.length;
+  for (const word of text.split(' ')) {
+    const empty = line.length === lineStart;
+    if (!empty && line.length + 1 + word.length > limit) {
+      lines.push(line);
+      line = indent;
+      lineStart = indent.length;
+    }
+    line += line.length === lineStart ? word : ` ${word}`;
+  }
+  lines.push(line);
+  return lines.join('\n');
+}
+
+export function wrapBullet(item: string, width: number, bullet: string): string {
+  return wrapText(item, width, `${bullet} `, ' '.repeat(bullet.length + 1));
+}
+
+/**
+ * One bulleted line per shortcut, with keys padded to a shared width. When
+ * any line is wider than `width`, every line uses wrapped "keys: action".
+ */
+export function shortcutColumn(hints: readonly ShortcutHint[], bullet: string, width = Infinity): string {
+  const keyWidth = Math.max(0, ...hints.map(([keys]) => keys.length));
+  const aligned = hints.map(([keys, action]) => `${bullet} ${keys.padEnd(keyWidth)}  ${action}`);
+  if (aligned.every((line) => line.length <= width)) return aligned.join('\n');
+  return hints.map(([keys, action]) => wrapBullet(`${keys}: ${action}`, width, bullet)).join('\n');
+}
+
+function formatSection(section: HelpSection, width: number, bullet: string): string {
+  return [section.title, ...section.items.map((item) => wrapBullet(item, width, bullet))].join('\n');
+}
+
+function patternGlyphs(pattern: string, glyphs: GlyphMode): string {
+  const marks = glyphs === 'ascii'
+    ? { C: 'G', P: 'Y', A: '.' }
+    : { C: '✓', P: '~', A: '×' };
+  return Array.from(pattern, (char) => marks[char as keyof typeof marks] ?? char).join('');
+}
+
+function formatBits(bits: number): string {
+  return bits.toFixed(2);
+}
+
+function decisionPathLines(tips: TipsSnapshot, strings: GameStrings, glyphs: GlyphMode): string[] {
+  const startCount = tips.path[0]?.candidatesBefore ?? tips.candidates.length;
+  const startBits = startCount > 0 ? Math.log2(startCount) : 0;
+  const lines = [
+    strings.tipsPathTitle,
+    `  ${strings.tipsPathStart.padEnd(11)} ${String(startCount).padStart(5)}  ${formatBits(startBits)} bits`,
+  ];
+  for (const step of tips.path) {
+    const label = `${step.guess.toUpperCase()} ${patternGlyphs(step.pattern, glyphs)}`;
+    const gain = step.bitsGained === null
+      ? strings.tipsPathNoMatch
+      : `+${formatBits(step.bitsGained)} bits`;
+    lines.push(`  ${label.padEnd(11)} ${String(step.candidatesAfter).padStart(5)}  ${gain}`);
+  }
+  return lines;
+}
+
+function nextQuestionLines(
+  tips: TipsSnapshot,
+  strings: GameStrings,
+  glyphs: GlyphMode,
+  compact: boolean,
+): string[] {
+  if (!tips.plan) return [];
+  const { split, estimate } = tips.plan;
+  const lines = [
+    strings.tipsNextQuestion(split.guess, formatBits(split.entropy), formatBits(tips.uncertaintyBits)),
+    strings.tipsExpectedRemaining(split.expectedRemaining.toFixed(1)),
+  ];
+  lines.push(strings.tipsSolveEstimate(estimate.expectedGuesses.toFixed(2), estimate.worstCaseGuesses));
+  for (const branch of split.branches.slice(0, TIPS_BRANCH_LIMIT)) {
+    const percent = `${Math.round(branch.probability * 100)}%`.padStart(4);
+    const bits = compact ? '' : `  ${formatBits(branch.bits).padStart(5)} bits`;
+    const next = branch.pattern === 'CCCCC'
+      ? strings.tipsBranchSolved
+      : branch.nextGuess ? `-> ${branch.nextGuess.toUpperCase()}` : '';
+    lines.push(`  ${patternGlyphs(branch.pattern, glyphs)} ${String(branch.count).padStart(5)} ${percent}${bits}  ${next}`.trimEnd());
+  }
+  const hidden = split.branches.length - TIPS_BRANCH_LIMIT;
+  if (hidden > 0) lines.push(`  ${strings.tipsMoreBranches(hidden)}`);
+  return lines;
+}
+
 function createText(
   renderer: CliRenderer,
   options: ConstructorParameters<typeof TextRenderable>[1] = {},
@@ -122,6 +270,15 @@ function createText(
     fg: fullPalette.ink,
     ...options,
   });
+}
+
+/**
+ * A `visible: false` scrollbar option is only a default: OpenTUI shows the bar
+ * again when content overflows. The setter marks the choice as manual.
+ */
+function hideScrollbars(box: ScrollBoxRenderable): void {
+  box.verticalScrollBar.visible = false;
+  box.horizontalScrollBar.visible = false;
 }
 
 function setPanelVisible(panel: BoxRenderable, visible: boolean): void {
@@ -161,10 +318,172 @@ function createTextPanel(renderer: CliRenderer, id: string): TextPanel {
   return { panel, title, body, back };
 }
 
+/** Scroll content must keep its natural height, or overflow squeezes it. */
+function addToScroll(scroll: ScrollBoxRenderable, ...children: Array<BoxRenderable | TextRenderable>): void {
+  for (const child of children) {
+    child.flexShrink = 0;
+    scroll.add(child);
+  }
+}
+
+function createScrollArea(renderer: CliRenderer, id: string): ScrollBoxRenderable {
+  const scroll = new ScrollBoxRenderable(renderer, {
+    id,
+    width: '100%',
+    scrollX: false,
+    scrollY: true,
+    contentOptions: { flexDirection: 'column' },
+  });
+  hideScrollbars(scroll);
+  return scroll;
+}
+
+function createColumnPair(renderer: CliRenderer, id: string): ColumnPair {
+  const row = new BoxRenderable(renderer, { id, flexDirection: 'row', gap: COLUMN_GAP, flexShrink: 0 });
+  const left = createText(renderer, { id: `${id}-left`, wrapMode: 'none' });
+  const right = createText(renderer, { id: `${id}-right`, wrapMode: 'none' });
+  row.add(left);
+  row.add(right);
+  return { row, left, right };
+}
+
+/**
+ * Show shortcut columns side by side. When they do not fit in `available`
+ * cells, stack them left column first, or report that nothing fits.
+ */
+function layoutShortcuts(
+  pair: ColumnPair,
+  [leftHints, rightHints]: ShortcutColumns,
+  bullet: string,
+  available: number,
+  fallback: 'stack' | 'hide',
+): boolean {
+  const left = shortcutColumn(leftHints, bullet);
+  const right = shortcutColumn(rightHints, bullet);
+  const fits = textWidth(left) + COLUMN_GAP + textWidth(right) <= available;
+  const stacked = !fits && fallback === 'stack';
+  pair.left.content = stacked ? shortcutColumn([...leftHints, ...rightHints], bullet, available) : left;
+  pair.right.content = right;
+  pair.right.visible = !stacked;
+  pair.right.width = stacked ? 0 : 'auto';
+  pair.row.gap = stacked ? 0 : COLUMN_GAP;
+  return fits || stacked;
+}
+
+function createHelpPanel(renderer: CliRenderer): HelpPanel {
+  const panel = new BoxRenderable(renderer, {
+    id: 'help-view',
+    width: '100%',
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingLeft: 1,
+    paddingRight: 1,
+  });
+  const title = createText(renderer, {
+    id: 'help-view-title',
+    fg: fullPalette.accent,
+    attributes: TextAttributes.BOLD,
+    height: 1,
+  });
+  const scroll = createScrollArea(renderer, 'help-view-scroll');
+  const intro = createText(renderer, { id: 'help-view-intro', width: '100%', wrapMode: 'none' });
+  const shortcutsTitle = createText(renderer, {
+    id: 'help-view-shortcuts-title',
+    width: '100%',
+    marginTop: 1,
+    height: 1,
+  });
+  const shortcuts = createColumnPair(renderer, 'help-view-shortcuts');
+  const sections = createText(renderer, {
+    id: 'help-view-sections',
+    width: '100%',
+    marginTop: 1,
+    wrapMode: 'none',
+  });
+  addToScroll(scroll, intro, shortcutsTitle, shortcuts.row, sections);
+  const back = createText(renderer, {
+    id: 'help-view-back',
+    fg: fullPalette.correct,
+    attributes: TextAttributes.BOLD,
+    height: 1,
+  });
+  panel.add(title);
+  panel.add(scroll);
+  panel.add(back);
+  return { panel, title, scroll, intro, shortcutsTitle, shortcuts, sections, back };
+}
+
+function createTipsPanel(renderer: CliRenderer, onTip: (row: number) => void): TipsPanel {
+  const panel = new BoxRenderable(renderer, {
+    id: 'tips-view',
+    width: '100%',
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingLeft: 1,
+    paddingRight: 1,
+  });
+  const title = createText(renderer, {
+    id: 'tips-view-title',
+    fg: fullPalette.accent,
+    attributes: TextAttributes.BOLD,
+    height: 1,
+  });
+  const scroll = createScrollArea(renderer, 'tips-view-scroll');
+  const summary = createText(renderer, { id: 'tips-view-summary', width: '100%' });
+  const rankedTitle = createText(renderer, {
+    id: 'tips-view-ranked-title',
+    width: '100%',
+    marginTop: 1,
+    attributes: TextAttributes.BOLD,
+  });
+  addToScroll(scroll, summary, rankedTitle);
+  const rows: TextRenderable[] = [];
+  for (let row = 0; row < TIPS_ROW_LIMIT; row += 1) {
+    const text = createText(renderer, {
+      id: `tips-view-row-${row}`,
+      width: '100%',
+      height: 1,
+      wrapMode: 'none',
+      onMouseDown: (event: MouseEvent) => {
+        if (event.button === MouseButton.LEFT) onTip(row);
+      },
+    });
+    rows.push(text);
+    addToScroll(scroll, text);
+  }
+  const tree = createText(renderer, {
+    id: 'tips-view-tree',
+    width: '100%',
+    marginTop: 1,
+  });
+  addToScroll(scroll, tree);
+  const back = createText(renderer, {
+    id: 'tips-view-back',
+    fg: fullPalette.correct,
+    attributes: TextAttributes.BOLD,
+    height: 1,
+  });
+  panel.add(title);
+  panel.add(scroll);
+  panel.add(back);
+  return { panel, title, scroll, summary, rankedTitle, rows, tree, back };
+}
+
 export function createOpenTuiView(
   renderer: CliRenderer,
   options: CreateOpenTuiViewOptions = {},
 ): OpenTuiView {
+  const emit = (target: PointerTarget): void => options.onPointer?.(target);
+  const onLeftClick = (target: () => PointerTarget | null) => (event: MouseEvent): void => {
+    if (event.button !== MouseButton.LEFT) return;
+    const resolved = target();
+    if (resolved) emit(resolved);
+  };
+  // Row that accepts slot clicks, from the latest render. Null when no row is editable.
+  let editableRow: number | null = null;
+  // Word behind each tips row, from the latest render.
+  let tipWords: string[] = [];
+
   const root = new BoxRenderable(renderer, {
     id: 'wordle-root',
     width: '100%',
@@ -223,12 +542,14 @@ export function createOpenTuiView(
   });
   const subtitle = createText(renderer, { id: 'game-subtitle', fg: fullPalette.muted, height: 1 });
   const usage = createText(renderer, { id: 'game-usage', fg: fullPalette.faint, height: 1 });
-  const controls = createText(renderer, { id: 'game-controls', width: '100%', fg: fullPalette.faint });
+  const controls = createColumnPair(renderer, 'game-controls');
+  const controlsHint = createText(renderer, { id: 'game-controls-hint', fg: fullPalette.muted, height: 1 });
   const accentHint = createText(renderer, { id: 'game-accent-hint', fg: fullPalette.muted, height: 1 });
   gamePanel.add(title);
   gamePanel.add(subtitle);
   gamePanel.add(usage);
-  gamePanel.add(controls);
+  gamePanel.add(controls.row);
+  gamePanel.add(controlsHint);
   gamePanel.add(accentHint);
 
   const board = new ScrollBoxRenderable(renderer, {
@@ -238,8 +559,6 @@ export function createOpenTuiView(
     marginTop: 1,
     scrollX: false,
     scrollY: true,
-    verticalScrollbarOptions: { visible: false, showArrows: false },
-    horizontalScrollbarOptions: { visible: false, showArrows: false },
     stickyScroll: true,
     stickyStart: 'bottom',
     contentOptions: {
@@ -247,6 +566,7 @@ export function createOpenTuiView(
       alignItems: 'center',
     },
   });
+  hideScrollbars(board);
   const boardTiles: TileCell[][] = [];
   const boardRowBoxes: BoxRenderable[] = [];
 
@@ -266,6 +586,9 @@ export function createOpenTuiView(
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: fullPalette.panelBright,
+        onMouseDown: onLeftClick(() => (
+          rowIndex === editableRow ? { kind: 'slot', index: column } : null
+        )),
       });
       const text = createText(renderer, {
         content: '·',
@@ -306,8 +629,32 @@ export function createOpenTuiView(
     marginTop: 1,
   });
   const keyboardRows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+  const enterKey = createKey('key-enter', 5, 'ENTER', { kind: 'enter' });
+  const backspaceKey = createKey('key-backspace', 3, '⌫', { kind: 'backspace' });
   const keyCells = new Map<string, TileCell>();
   const keyRowBoxes: BoxRenderable[] = [];
+
+  function createKey(id: string, width: number, label: string, target: PointerTarget): TileCell {
+    const box = new BoxRenderable(renderer, {
+      id,
+      width,
+      height: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: fullPalette.panelBright,
+      onMouseDown: onLeftClick(() => target),
+    });
+    const text = createText(renderer, {
+      content: label,
+      fg: fullPalette.muted,
+      attributes: TextAttributes.BOLD,
+      height: 1,
+      wrapMode: 'none',
+    });
+    box.add(text);
+    return { box, text };
+  }
+
   for (const [rowIndex, letters] of keyboardRows.entries()) {
     const row = new BoxRenderable(renderer, {
       id: `keyboard-row-${rowIndex}`,
@@ -316,25 +663,14 @@ export function createOpenTuiView(
       height: 1,
     });
     keyRowBoxes.push(row);
+    const lastRow = rowIndex === keyboardRows.length - 1;
+    if (lastRow) row.add(enterKey.box);
     for (const letter of letters) {
-      const box = new BoxRenderable(renderer, {
-        id: `key-${letter}`,
-        width: 3,
-        height: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: fullPalette.panelBright,
-      });
-      const text = createText(renderer, {
-        content: letter.toUpperCase(),
-        fg: fullPalette.muted,
-        attributes: TextAttributes.BOLD,
-        height: 1,
-      });
-      box.add(text);
-      row.add(box);
-      keyCells.set(letter, { box, text });
+      const cell = createKey(`key-${letter}`, 3, letter.toUpperCase(), { kind: 'letter', char: letter });
+      row.add(cell.box);
+      keyCells.set(letter, cell);
     }
+    if (lastRow) row.add(backspaceKey.box);
     keyboard.add(row);
   }
   gamePanel.add(keyboard);
@@ -373,9 +709,12 @@ export function createOpenTuiView(
   gamePanel.add(notice);
   gamePanel.add(persistenceWarning);
 
-  const help = createTextPanel(renderer, 'help-view');
+  const help = createHelpPanel(renderer);
   const progress = createTextPanel(renderer, 'progress-view');
-  const tips = createTextPanel(renderer, 'tips-view');
+  const tips = createTipsPanel(renderer, (row) => {
+    const word = tipWords[row];
+    if (word) emit({ kind: 'tip', word });
+  });
   const confirm = createTextPanel(renderer, 'confirm-restart-view');
   shell.add(help.panel);
   shell.add(progress.panel);
@@ -474,8 +813,14 @@ export function createOpenTuiView(
     );
   }
 
+  /** Cells inside the root padding, capped by the shell's max width. */
+  function shellWidth(): number {
+    return Math.min(renderer.width - 2, 76);
+  }
+
   function renderBoard(snapshot: AppSnapshot, compact: boolean, mode: PresentationMode, palette: Palette): void {
     const currentRow = snapshot.game.guesses.length;
+    editableRow = snapshot.game.status === 'playing' ? currentRow : null;
     const activeIndex = Math.min(snapshot.game.cursorPosition, WORD_LENGTH - 1);
     const empty = emptySlotGlyph(mode.glyphs);
     const isPractice = snapshot.mode === 'practice' || snapshot.game.mode === 'practice';
@@ -534,6 +879,12 @@ export function createOpenTuiView(
       cell.text.fg = tileForeground(state, false, mode, palette);
       cell.text.attributes = tileAttributes(state, false, mode);
     }
+    backspaceKey.text.content = mode.glyphs === 'ascii' ? '<-' : '⌫';
+    for (const cell of [enterKey, backspaceKey]) {
+      cell.box.backgroundColor = tileBackground(TILE.EMPTY, false, mode, palette);
+      cell.text.fg = mode.color === 'none' ? palette.ink : palette.muted;
+      cell.text.attributes = TextAttributes.BOLD;
+    }
   }
 
   function renderGame(snapshot: AppSnapshot, compact: boolean, mode: PresentationMode, palette: Palette): void {
@@ -541,7 +892,7 @@ export function createOpenTuiView(
     const isPractice = snapshot.mode === 'practice' || snapshot.game.mode === 'practice';
     const hardOn = snapshot.hardMode || snapshot.game.hardMode;
     const guessesLeft = Math.max(0, MAX_GUESSES - snapshot.game.guesses.length);
-    const controlsText = snapshot.game.status === 'playing'
+    const controlHints = snapshot.game.status === 'playing'
       ? strings.controlsPlaying
       : strings.controlsFinished;
     const marks = legendMarks(mode.glyphs);
@@ -555,14 +906,22 @@ export function createOpenTuiView(
       ? strings.guessesUsedPractice(snapshot.game.guesses.length)
       : strings.guessesUsed(snapshot.game.guesses.length, guessesLeft);
     usage.fg = palette.faint;
-    controls.content = controlsText;
-    controls.fg = palette.faint;
+    const controlsFit = layoutShortcuts(controls, controlHints, bulletGlyph(mode.glyphs), shellWidth(), 'hide');
+    controls.left.fg = palette.muted;
+    controls.right.fg = palette.muted;
     accentHint.content = strings.accentHint;
     accentHint.fg = palette.muted;
     subtitle.visible = !compact;
     subtitle.height = compact ? 0 : 1;
-    controls.visible = !compact;
-    controls.height = compact ? 0 : 'auto';
+    // Narrow or short layouts hide the shortcuts; `?` still opens the full list.
+    const showControls = !compact && controlsFit && renderer.height >= CONTROLS_MIN_HEIGHT;
+    controls.row.visible = showControls;
+    controls.row.height = showControls ? 'auto' : 0;
+    controls.row.marginTop = showControls ? 1 : 0;
+    controlsHint.content = strings.controlsHint;
+    controlsHint.fg = palette.muted;
+    controlsHint.visible = !compact && !showControls;
+    controlsHint.height = controlsHint.visible ? 1 : 0;
     accentHint.visible = !compact && Boolean(strings.accentHint);
     accentHint.height = accentHint.visible ? 1 : 0;
 
@@ -608,22 +967,34 @@ export function createOpenTuiView(
   function renderHelp(snapshot: AppSnapshot, mode: PresentationMode, palette: Palette): void {
     const strings = messages[snapshot.language];
     const marks = legendMarks(mode.glyphs);
+    const bullet = bulletGlyph(mode.glyphs);
+    // Panel padding takes one cell on each side.
+    const width = shellWidth() - 2;
+    help.scroll.height = scrollAreaHeight();
     help.title.content = strings.helpTitle;
     help.title.fg = palette.accent;
-    help.body.fg = palette.ink;
-    help.back.fg = mode.color === 'none' ? palette.ink : palette.correct;
-    help.body.content = [
-      strings.helpIntro,
+    help.intro.fg = palette.ink;
+    help.intro.content = [
+      wrapText(strings.helpIntro, width),
       '',
-      strings.helpInstructions,
+      formatSection(strings.helpPlay, width, bullet),
       '',
-      `${strings.helpLegendTitle}:`,
-      `${marks.correct} ${strings.helpLegendCorrect}   ${marks.present} ${strings.helpLegendPresent}   ${marks.absent} ${strings.helpLegendAbsent}`,
-      '',
-      strings.helpAutosave,
-      strings.helpShortcuts,
+      strings.helpLegendTitle,
+      `${bullet} ${marks.correct} ${strings.helpLegendCorrect}`,
+      `${bullet} ${marks.present} ${strings.helpLegendPresent}`,
+      `${bullet} ${marks.absent} ${strings.helpLegendAbsent}`,
     ].join('\n');
-    help.back.content = strings.helpBack;
+    help.shortcutsTitle.content = strings.helpShortcutsTitle;
+    help.shortcutsTitle.fg = palette.ink;
+    layoutShortcuts(help.shortcuts, strings.helpShortcuts, bullet, width, 'stack');
+    help.shortcuts.left.fg = palette.ink;
+    help.shortcuts.right.fg = palette.ink;
+    help.sections.fg = palette.ink;
+    help.sections.content = [strings.helpModes, strings.helpMouse, strings.helpSaving]
+      .map((section) => formatSection(section, width, bullet))
+      .join('\n\n');
+    help.back.content = renderer.width < 48 ? strings.helpBack : `${strings.helpBack}   ${strings.tipsScrollHint}`;
+    help.back.fg = mode.color === 'none' ? palette.ink : palette.correct;
   }
 
   function renderProgress(snapshot: AppSnapshot, mode: PresentationMode, palette: Palette): void {
@@ -647,38 +1018,60 @@ export function createOpenTuiView(
     progress.back.content = strings.progressBack;
   }
 
+  function renderTipRows(data: TipsSnapshot | null, compact: boolean, mode: PresentationMode, palette: Palette): void {
+    const ranked = data?.ranked.slice(0, TIPS_ROW_LIMIT) ?? [];
+    tipWords = ranked.map((score) => score.guess);
+    tips.rows.forEach((row, index) => {
+      const score = ranked[index];
+      row.visible = Boolean(score);
+      row.height = score ? 1 : 0;
+      row.fg = palette.ink;
+      if (!score) return;
+      const word = score.guess.toUpperCase().padEnd(5);
+      const bits = `${formatBits(score.entropy).padStart(5)} bits`;
+      row.content = compact
+        ? `  ${word}  ${bits}`
+        : `  ${word}  ${bits}  ${patternGlyphs(score.topPattern, mode.glyphs)}`;
+    });
+  }
+
   function renderTips(snapshot: AppSnapshot, mode: PresentationMode, palette: Palette): void {
     const strings = messages[snapshot.language];
     const data = snapshot.tips;
     const compact = renderer.width < 48;
-    const rowLimit = Math.max(3, Math.min(8, renderer.height - 8));
-    const rows = data?.ranked.slice(0, rowLimit).map((score) => compact
-      ? `${score.guess.toUpperCase().padEnd(5)}  ${score.entropy.toFixed(2)} bits`
-      : `${score.guess.toUpperCase().padEnd(5)}  ${score.entropy.toFixed(2).padStart(5)} bits  ${score.topPattern}`,
-    ) ?? [];
+    tips.scroll.height = scrollAreaHeight();
     tips.title.content = strings.tipsTitle;
     tips.title.fg = palette.accent;
-    tips.body.fg = palette.ink;
+    tips.back.content = compact ? strings.tipsBack : `${strings.tipsBack}   ${strings.tipsScrollHint}`;
     tips.back.fg = mode.color === 'none' ? palette.ink : palette.correct;
+    for (const text of [tips.summary, tips.rankedTitle, tips.tree]) text.fg = palette.ink;
+    tips.rankedTitle.fg = mode.color === 'none' ? palette.ink : palette.accent;
+
+    renderTipRows(data, compact, mode, palette);
     if (!data) {
-      tips.body.content = strings.tipsNoSuggestions;
-    } else if (data.status === 'computing') {
-      tips.body.content = [
-        strings.tipsCandidateCount(data.candidates.length),
-        strings.tipsComputing,
-        '',
-        ...(rows.length > 0 ? [strings.tipsTopGuesses, ...rows] : []),
-      ].filter(Boolean).join('\n');
-    } else {
-      tips.body.content = [
-        strings.tipsCandidateCount(data.candidates.length),
-        data.bestCandidate ? strings.tipsBestCandidate(data.bestCandidate) : '',
-        '',
-        strings.tipsTopGuesses,
-        ...(rows.length > 0 ? rows : [strings.tipsNoSuggestions]),
-      ].filter((line, index, lines) => line || lines[index - 1] !== '').join('\n');
+      tips.summary.content = strings.tipsNoSuggestions;
+      tips.rankedTitle.content = '';
+      tips.tree.content = '';
+      return;
     }
-    tips.back.content = strings.tipsBack;
+
+    tips.summary.content = [
+      strings.tipsCandidateCount(data.candidates.length),
+      strings.tipsUncertainty(formatBits(data.uncertaintyBits)),
+      data.status === 'computing' ? strings.tipsComputing : '',
+      data.status === 'ready' && data.bestCandidate ? strings.tipsBestCandidate(data.bestCandidate) : '',
+    ].filter(Boolean).join('\n');
+    tips.rankedTitle.content = data.ranked.length > 0 || data.status === 'ready'
+      ? strings.tipsTopGuesses
+      : '';
+    tips.tree.content = [
+      ...(data.status === 'ready' && data.ranked.length === 0 ? [strings.tipsNoSuggestions, ''] : []),
+      ...decisionPathLines(data, strings, mode.glyphs),
+      '',
+      ...nextQuestionLines(data, strings, mode.glyphs, compact),
+      ...(data.plan ? [''] : []),
+      strings.tipsBasis,
+    ].join('\n');
   }
 
   function renderConfirm(snapshot: AppSnapshot, mode: PresentationMode, palette: Palette): void {
@@ -689,6 +1082,21 @@ export function createOpenTuiView(
     confirm.body.fg = palette.ink;
     confirm.back.content = strings.restartConfirmPrompt;
     confirm.back.fg = mode.color === 'none' ? palette.ink : palette.correct;
+  }
+
+  /** Root padding (2) plus the title and back lines stay outside a scroll area. */
+  function scrollAreaHeight(): number {
+    return Math.max(1, renderer.height - 4);
+  }
+
+  /** A focused scroll box handles arrow and page keys while its view is open. */
+  function syncScrollFocus(scroll: ScrollBoxRenderable, visible: boolean): void {
+    if (visible && !scroll.focused) {
+      scroll.scrollTo(0);
+      scroll.focus();
+    } else if (!visible && scroll.focused) {
+      scroll.blur();
+    }
   }
 
   function render(snapshot: AppSnapshot): void {
@@ -705,6 +1113,7 @@ export function createOpenTuiView(
     const tooSmall = renderer.width < 30 || renderer.height < minimumHeight;
     const compact = compactWidth || renderer.height < 23;
     const strings = messages[snapshot.language];
+    editableRow = null;
     sizeTitle.content = strings.title;
     sizeTitle.fg = palette.accent;
     sizeMessage.content = strings.terminalTooSmall;
@@ -714,6 +1123,8 @@ export function createOpenTuiView(
     setPanelVisible(help.panel, !tooSmall && snapshot.view === 'help');
     setPanelVisible(progress.panel, !tooSmall && snapshot.view === 'progress');
     setPanelVisible(tips.panel, !tooSmall && snapshot.view === 'tips');
+    syncScrollFocus(help.scroll, !tooSmall && snapshot.view === 'help');
+    syncScrollFocus(tips.scroll, !tooSmall && snapshot.view === 'tips');
     setPanelVisible(confirm.panel, !tooSmall && snapshot.view === 'confirmRestart');
 
     if (tooSmall) {

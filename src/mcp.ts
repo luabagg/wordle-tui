@@ -65,14 +65,18 @@ export function getSessionTips(session: GameSession) {
     history,
     answerKeys: bank.answers.map((a) => a.key),
     allWords: bank.allWords,
+    hardMode: session.game.state.hardMode,
   });
   return {
     candidatesRemaining: tips.candidates.length,
+    uncertaintyBits: tips.uncertaintyBits,
     bestCandidate: tips.bestCandidate,
     topSuggestions: tips.ranked.slice(0, 5).map((r) => ({
       guess: r.guess,
       entropy: r.entropy,
     })),
+    decisionPath: tips.path,
+    nextQuestion: tips.plan,
     candidates: tips.candidates,
     ranked: tips.ranked,
   };
@@ -239,7 +243,7 @@ async function main() {
       },
       {
         name: 'get_tips',
-        description: 'Get entropy-ranked suggestions and remaining candidate count.',
+        description: 'Get entropy-ranked suggestions, the decision path so far, and the information-gain split of the best next guess.',
         inputSchema: { type: 'object', properties: {} },
       },
     ],
@@ -279,8 +283,11 @@ async function main() {
         type: 'text',
         text: JSON.stringify({
           candidatesRemaining: tips.candidatesRemaining,
+          uncertaintyBits: tips.uncertaintyBits,
           bestCandidate: tips.bestCandidate,
           topSuggestions: tips.topSuggestions,
+          decisionPath: tips.decisionPath,
+          nextQuestion: tips.nextQuestion,
         }, null, 2),
       });
     } else {

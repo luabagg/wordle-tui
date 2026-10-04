@@ -701,3 +701,29 @@ describe('practice session coherence', () => {
     expect(stats.activeByLanguage.pt?.guesses).toEqual(['texto']);
   });
 });
+
+describe('tips click', () => {
+  test('fills the row from a tip, returns to the game, and does not submit', () => {
+    const { app } = createTestApp();
+    app.dispatch({ type: 'openTips' });
+
+    app.dispatch({ type: 'useTip', word: 'slate' });
+
+    const snapshot = app.snapshot();
+    expect(snapshot.view).toBe('game');
+    expect(snapshot.game.slots).toEqual(['s', 'l', 'a', 't', 'e']);
+    expect(snapshot.game.guesses).toEqual([]);
+  });
+
+  test('leaves a finished board unchanged', () => {
+    const { app } = createTestApp();
+    typeWord(app, 'crane');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'openTips' });
+
+    app.dispatch({ type: 'useTip', word: 'slate' });
+
+    expect(app.snapshot().view).toBe('game');
+    expect(app.snapshot().game.guesses).toEqual(['crane']);
+  });
+});

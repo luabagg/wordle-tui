@@ -11,7 +11,8 @@ import type {
 } from '@opentui/core';
 import { createWordleApp, parseLanguage } from './app';
 import type { WordleApp } from './app';
-import { resolveOpenTuiKey } from './input';
+import { resolveOpenTuiKey, resolvePointer } from './input';
+import type { Action, PointerTarget, ResolveContext } from './input';
 import { createOpenTuiView } from './opentui-view';
 import type { OpenTuiView } from './opentui-view';
 
@@ -66,7 +67,8 @@ export async function run(
       exitOnCtrlC: false,
       clearOnShutdown: true,
       consoleMode: 'disabled',
-      useMouse: false,
+      // Mouse tracking takes over terminal text selection; most terminals bypass it with Shift.
+      useMouse: true,
       backgroundColor: '#0f1115',
     });
 
@@ -76,9 +78,6 @@ export async function run(
       effects: {
         copyText: (text) => activeRenderer.copyToClipboardOSC52(text),
       },
-    });
-    const view = dependencies.createView(activeRenderer, {
-      glyphs: dependencies.useAsciiGlyphs() ? 'ascii' : 'unicode',
     });
     let stopped = false;
     let tickHandle: unknown = null;
@@ -95,14 +94,17 @@ export async function run(
       render();
     };
 
-    const onKeypress = (key: KeyEvent): void => {
+    const resolveContext = (): ResolveContext => {
       const snapshot = app.snapshot();
-      const action = resolveOpenTuiKey({
+      return {
         view: snapshot.view,
         status: snapshot.game.status,
         introPending: snapshot.introPending,
         noticeVisible: Boolean(snapshot.notice),
-      }, key);
+      };
+    };
+
+    const dispatch = (action: Action): void => {
       const result = app.dispatch(action);
       if (result.shouldQuit) {
         shutdown();
@@ -114,6 +116,19 @@ export async function run(
         void app.flushTips().then(render);
       }
     };
+
+    const onKeypress = (key: KeyEvent): void => {
+      dispatch(resolveOpenTuiKey(resolveContext(), key));
+    };
+
+    const onPointer = (target: PointerTarget): void => {
+      dispatch(resolvePointer(resolveContext(), target));
+    };
+
+    const view = dependencies.createView(activeRenderer, {
+      glyphs: dependencies.useAsciiGlyphs() ? 'ascii' : 'unicode',
+      onPointer,
+    });
 
     const onPaste = (event: PasteEvent): void => {
       app.dispatch({ type: 'paste', text: decodePasteBytes(event.bytes) });
