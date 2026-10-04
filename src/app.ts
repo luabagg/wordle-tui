@@ -133,15 +133,27 @@ function defaultChoosePracticeAnswer(bank: WordBank, _language: Language, now: D
   return bank.answers[index];
 }
 
+/**
+ * Restore a saved board. The game is first switched to the board's language,
+ * so its dictionary and strings match the restored answer and guesses.
+ */
 function applyActivePuzzle(
   game: Game,
   puzzle: ActivePuzzle,
   answer: { key: string; text: string },
-  dictionarySize: number,
+  bank: WordBank,
 ): void {
+  const mode: PuzzleMode = puzzle.mode === 'practice' ? 'practice' : 'daily';
+  game.switchLanguage({
+    answer,
+    dictionary: bank.allWords,
+    language: puzzle.language,
+    hardMode: Boolean(puzzle.hardMode),
+    mode,
+    maxGuesses: mode === 'practice' ? Number.POSITIVE_INFINITY : 6,
+  });
+  const dictionarySize = Object.keys(bank.allWords).length;
   const state = game.state;
-  state.answer = answer.text;
-  state.answerKey = answer.key;
   state.guesses = [...puzzle.guesses];
   state.evaluations = puzzle.evaluations.map((row) => [...row] as TileState[]);
   game.restoreEditableRow({
@@ -151,10 +163,6 @@ function applyActivePuzzle(
   });
   state.status = puzzle.status;
   state.keyState = rebuildKeyState(state.guesses, state.evaluations);
-  state.language = puzzle.language;
-  state.hardMode = Boolean(puzzle.hardMode);
-  state.mode = puzzle.mode === 'practice' ? 'practice' : 'daily';
-  state.maxGuesses = state.mode === 'practice' ? Number.POSITIVE_INFINITY : 6;
 
   if (puzzle.status === 'won') {
     state.message = state.mode === 'practice'
@@ -405,7 +413,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
 
     const active = stats.activeByLanguage[language];
     if (active && active.dailyId === daily.id) {
-      applyActivePuzzle(game, active, todayAnswer, dictionarySize());
+      applyActivePuzzle(game, active, todayAnswer, bank);
       hardMode = game.state.hardMode;
       mode = 'daily';
       if (active.status !== 'playing') recordIfFinished();
@@ -435,7 +443,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
   {
     const active = stats.activeByLanguage[language];
     if (active && active.dailyId === daily.id) {
-      applyActivePuzzle(game, active, todayAnswer, dictionarySize());
+      applyActivePuzzle(game, active, todayAnswer, bank);
       hardMode = game.state.hardMode;
       mode = active.mode === 'practice' ? 'daily' : 'daily';
       // Practice is session-only; persisted mode is always treated as daily board.
@@ -550,7 +558,7 @@ export function createWordleApp(options: CreateWordleAppOptions = {}): WordleApp
     daily = dailyDescriptor(language, effects.now());
 
     if (active && active.dailyId === daily.id) {
-      applyActivePuzzle(game, active, todayAnswer, dictionarySize());
+      applyActivePuzzle(game, active, todayAnswer, bank);
       hardMode = game.state.hardMode;
       if (active.status !== 'playing') recordIfFinished();
     } else {

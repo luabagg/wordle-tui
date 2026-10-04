@@ -727,3 +727,34 @@ describe('tips click', () => {
     expect(app.snapshot().game.guesses).toEqual(['crane']);
   });
 });
+
+describe('restored sessions use their own language dictionary', () => {
+  test('restart after restoring a board saved in another language', () => {
+    const { app } = createTestApp({ language: 'pt' });
+    typeWord(app, 'texto');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'switchLanguage' });
+    app.dispatch({ type: 'switchLanguage' });
+
+    expect(app.snapshot().language).toBe('pt');
+    expect(app.snapshot().game.guesses).toEqual(['texto']);
+    expect(() => {
+      app.dispatch({ type: 'restart' });
+      app.dispatch({ type: 'confirmRestart' });
+    }).not.toThrow();
+    expect(app.snapshot().game.guesses).toEqual([]);
+  });
+
+  test('guesses after the restore are checked against the restored language', () => {
+    const { app } = createTestApp({ language: 'pt' });
+    typeWord(app, 'texto');
+    app.dispatch({ type: 'submit' });
+    app.dispatch({ type: 'switchLanguage' });
+    app.dispatch({ type: 'switchLanguage' });
+
+    typeWord(app, 'sabio');
+    app.dispatch({ type: 'submit' });
+
+    expect(app.snapshot().game.guesses).toEqual(['texto', 'sábio']);
+  });
+});
